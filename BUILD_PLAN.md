@@ -12,7 +12,7 @@
 | 3. Interactive frontend and local persistence | `[x]` | Codex | 2026-08-07 | Local flows, persistence, live reporting, and domain separation are complete and verified by build, lint, domain, repository, and rendered-shell checks. |
 | 3.5 Balance reconciliation | `[x]` | Codex | 2026-08-09 | Expected-versus-actual balance checks, persisted records, guided adjustments, and transfer-safe calculations are complete. |
 | 3.6 Insight intelligence | `[x]` | Codex | 2026-08-09 | Explainable, prioritized live insight feeds and threshold coverage are complete and verified. |
-| 4. Supabase backend, live web app, and deployment | `[-]` | Codex | 2026-08-10 | Local production container and VPS Compose configuration are verified. GitHub Actions deployment credentials are configured; CI date handling is verified in local and UTC timezones. Live VPS deployment remains to be verified. |
+| 4. Supabase backend, live web app, and deployment | `[!]` | Codex | 2026-08-10 | GitHub Actions verified and published the image. VPS deployment is blocked because an existing container owns port 80; identify the existing reverse proxy so WIW can be routed without disturbing shared services. |
 | 5. Mobile frontend | `[ ]` | Unassigned | — | Starts after the live web app is operating successfully. |
 | 6. Test, polish, and release | `[ ]` | Unassigned | — | — |
 
@@ -219,8 +219,8 @@ Build the visual shell with mock data before connecting real authentication or s
 
 ## Milestone 4 — Supabase backend, live web app, and VPS deployment
 
-**Status:** `[-]`  
-**Completion note:** 2026-08-10 — Reprioritized ahead of mobile. A live Supabase project and schema are configured, and the app now has a cloud repository for signed-in users. Profile creation and first-run preference saving were user-verified after adding the scoped profile-insert policy. A production Docker image now builds and returns HTTP 200 locally; the Caddy Compose configuration also validates for `wiw.kineticapp.online`. GitHub has the public build variables and WIW deployment credentials. Corrected the prior-range calculation and verified `npm test` in both local and UTC timezones plus lint. Live deployment and its HTTPS smoke check remain.
+**Status:** `[!]`  
+**Completion note:** 2026-08-10 — GitHub Actions now passes tests and lint, publishes `ghcr.io/lerrouxlopez/wiw:c3632fbf88e9fbf02abdc580e1ccea318edc7ff6`, and reaches the VPS using the configured WIW-only deployment path. The app image and isolated `wiw` Docker network/volumes were created, but WIW's Caddy container could not bind port 80 because another container already owns it. Do not stop or modify the existing service; inspect it and route WIW through the established proxy instead. The prior-range calculation was also corrected and verified with `npm test` in both local and UTC timezones plus lint.
 
 ### Implement
 
@@ -232,8 +232,8 @@ Build the visual shell with mock data before connecting real authentication or s
 - [x] Supabase repository adapter replacing local persistence in production — signed-in user verified transactions, categories, budgets, balance checks, settings, savings goal, and refresh persistence on 2026-08-09.
 - [ ] Data migration or clear development reset instructions for local mock data.
 - [x] Production web container with public, non-secret Supabase build configuration — image built locally and served HTTP 200 on 2026-08-09.
-- [-] GitHub Actions workflow to build, test, publish to GHCR, and deploy the chosen image tag to the VPS.
-- [-] VPS deployment configuration and rollback/runbook documentation.
+- [x] GitHub Actions workflow to build, test, publish to GHCR, and deploy the chosen image tag to the VPS — verified 2026-08-10: tests, lint, and GHCR publishing succeeded; deployment reached the VPS.
+- [!] VPS deployment configuration and rollback/runbook documentation — deployment reached the VPS on 2026-08-10 but Caddy could not bind port 80 because a pre-existing shared service owns it. Identify the existing proxy and configure WIW as an upstream without changing unrelated services.
 
 ### Security checks
 
@@ -245,7 +245,7 @@ Build the visual shell with mock data before connecting real authentication or s
 ### Deployment acceptance checks
 
 - [x] A production image builds locally and starts with the required public configuration — verified on 2026-08-09 with a temporary Docker container returning HTTP 200.
-- [ ] GitHub Actions publishes the image to GHCR only after tests and lint pass.
+- [x] GitHub Actions publishes the image to GHCR only after tests and lint pass — verified 2026-08-10 with image tag `ghcr.io/lerrouxlopez/wiw:c3632fbf88e9fbf02abdc580e1ccea318edc7ff6`.
 - [ ] The VPS runs the published web image behind HTTPS and persists configuration outside the image.
 - [ ] A documented rollback can return the VPS to the prior image version.
 
