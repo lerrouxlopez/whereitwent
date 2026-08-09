@@ -12,7 +12,7 @@
 | 3. Interactive frontend and local persistence | `[x]` | Codex | 2026-08-07 | Local flows, persistence, live reporting, and domain separation are complete and verified by build, lint, domain, repository, and rendered-shell checks. |
 | 3.5 Balance reconciliation | `[x]` | Codex | 2026-08-09 | Expected-versus-actual balance checks, persisted records, guided adjustments, and transfer-safe calculations are complete. |
 | 3.6 Insight intelligence | `[x]` | Codex | 2026-08-09 | Explainable, prioritized live insight feeds and threshold coverage are complete and verified. |
-| 4. Supabase backend, live web app, and deployment | `[!]` | Codex | 2026-08-10 | GitHub Actions verified and published the image. VPS deployment is blocked because an existing container owns port 80; identify the existing reverse proxy so WIW can be routed without disturbing shared services. |
+| 4. Supabase backend, live web app, and deployment | `[-]` | Codex | 2026-08-10 | GitHub Actions verified and published the image. The VPS uses host-level Nginx, so WIW is being adapted to a localhost-only port and a dedicated Nginx site without disturbing shared services. |
 | 5. Mobile frontend | `[ ]` | Unassigned | — | Starts after the live web app is operating successfully. |
 | 6. Test, polish, and release | `[ ]` | Unassigned | — | — |
 
@@ -219,8 +219,8 @@ Build the visual shell with mock data before connecting real authentication or s
 
 ## Milestone 4 — Supabase backend, live web app, and VPS deployment
 
-**Status:** `[!]`  
-**Completion note:** 2026-08-10 — GitHub Actions now passes tests and lint, publishes `ghcr.io/lerrouxlopez/wiw:c3632fbf88e9fbf02abdc580e1ccea318edc7ff6`, and reaches the VPS using the configured WIW-only deployment path. The app image and isolated `wiw` Docker network/volumes were created, but WIW's Caddy container could not bind port 80 because another container already owns it. Do not stop or modify the existing service; inspect it and route WIW through the established proxy instead. The prior-range calculation was also corrected and verified with `npm test` in both local and UTC timezones plus lint.
+**Status:** `[-]`  
+**Completion note:** 2026-08-10 — GitHub Actions now passes tests and lint, publishes `ghcr.io/lerrouxlopez/wiw:c3632fbf88e9fbf02abdc580e1ccea318edc7ff6`, and reaches the VPS using the configured WIW-only deployment path. The first deployment revealed that host-level Nginx, not a Docker container, owns ports 80/443. WIW is being switched from an independent Caddy proxy to `127.0.0.1:8014` with a new, dedicated Certbot-managed Nginx site; existing sites and containers remain untouched. The prior-range calculation was also corrected and verified with `npm test` in both local and UTC timezones plus lint.
 
 ### Implement
 
@@ -233,7 +233,7 @@ Build the visual shell with mock data before connecting real authentication or s
 - [ ] Data migration or clear development reset instructions for local mock data.
 - [x] Production web container with public, non-secret Supabase build configuration — image built locally and served HTTP 200 on 2026-08-09.
 - [x] GitHub Actions workflow to build, test, publish to GHCR, and deploy the chosen image tag to the VPS — verified 2026-08-10: tests, lint, and GHCR publishing succeeded; deployment reached the VPS.
-- [!] VPS deployment configuration and rollback/runbook documentation — deployment reached the VPS on 2026-08-10 but Caddy could not bind port 80 because a pre-existing shared service owns it. Identify the existing proxy and configure WIW as an upstream without changing unrelated services.
+- [-] VPS deployment configuration and rollback/runbook documentation — deployment reached the VPS on 2026-08-10. Host-level Nginx owns ports 80/443, so configure WIW as a localhost upstream with a dedicated Nginx site and Certbot certificate without changing unrelated services.
 
 ### Security checks
 
