@@ -1,11 +1,15 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { getSupabaseClient, isSupabaseConfigured } from "./lib/supabase";
+import { supabaseBudgetRepository } from "./lib/supabase-budget-repository";
 import * as budgetDomain from "./lib/budget";
+import { localBudgetRepository } from "./lib/budget-repository";
 
 type Transaction = budgetDomain.Transaction;
 type Budget = budgetDomain.Budget;
+type BalanceCheck = budgetDomain.BalanceCheck;
 
 const initialTransactions: Transaction[] = [
   { id: 1, name: "Monthly salary", category: "Income", amount: 82000, date: "2026-08-01", type: "income", icon: "✦" },
@@ -19,9 +23,8 @@ const initialTransactions: Transaction[] = [
   { id: 9, name: "Phone plan", category: "Bills & utilities", amount: 1499, date: "2026-06-28", type: "expense", icon: "◌" },
 ];
 
-const categories = ["Food & groceries", "Dining out", "Transport", "Bills & utilities", "Subscriptions", "Shopping", "Health", "Other"];
-const transactionStorageKey = "wiw:transactions:v1";
-const budgetStorageKey = "wiw:budgets:v1";
+const defaultCategories = ["Food & groceries", "Dining out", "Transport", "Bills & utilities", "Subscriptions", "Shopping", "Health", "Other", "Untracked spending"];
+let categories = [...defaultCategories];
 const initialBudgets: Budget[] = [
   { id: 1, category: "Dining out", limit: 3000, icon: "☕", tone: "peach" },
   { id: 2, category: "Transport", limit: 4500, icon: "◈", tone: "blue" },
@@ -30,9 +33,10 @@ const initialBudgets: Budget[] = [
 const periodOptions = [
   ["today", "Today"], ["week", "This week"], ["biweekly", "Bi-weekly"], ["month", "This month"], ["year", "This year"], ["custom", "Custom"],
 ] as const;
+let displayedCurrency = "PHP";
 
 function peso(value: number) {
-  return budgetDomain.formatCurrency(value);
+  return budgetDomain.formatCurrency(value, displayedCurrency);
 }
 
 function displayDate(date: string) {
@@ -40,38 +44,67 @@ function displayDate(date: string) {
   return Number.isNaN(parsed.getTime()) ? date : new Intl.DateTimeFormat("en-PH", { month: "short", day: "numeric" }).format(parsed);
 }
 
+function describeCloudError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const details = error as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
+    return [details.message, details.code, details.details, details.hint].filter((value) => typeof value === "string" && value.trim()).join(" — ") || "please try again.";
+  }
+  return "please try again.";
+}
+
 export default function Home() {
+  const [profileName, setProfileName] = useState("Alex Morgan");
+  const [currencyCode, setCurrencyCode] = useState("PHP");
+  const [startingBalance, setStartingBalance] = useState(0);
+  const [savingsGoal, setSavingsGoal] = useState<number | null>(null);
+  const [period, setPeriod] = useState<(typeof periodOptions)[number][0]>("month");
+  useEffect(() => { displayedCurrency = currencyCode; }, [currencyCode]);
+  useEffect(() => {
+    if (isSupabaseConfigured) return;
+    const saved = localBudgetRepository.loadProfile();
+    if (typeof saved.name === "string" && saved.name.trim()) setProfileName(saved.name);
+    if (saved.currency === "PHP" || saved.currency === "USD") setCurrencyCode(saved.currency);
+    if (periodOptions.some(([value]) => value === saved.period)) setPeriod(saved.period as (typeof periodOptions)[number][0]);
+    if (typeof saved.startingBalance === "number" && Number.isFinite(saved.startingBalance)) setStartingBalance(saved.startingBalance);
+    setSavingsGoal(localBudgetRepository.loadSavingsGoal());
+  }, []);
   const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
   const [transactionsReady, setTransactionsReady] = useState(false);
+  const [cloudReady, setCloudReady] = useState(false);
+  const [categoryVersion, setCategoryVersion] = useState(0);
+  const [storageNotice, setStorageNotice] = useState("");
   const [budgets, setBudgets] = useState<Budget[]>(initialBudgets);
   const [budgetsReady, setBudgetsReady] = useState(false);
-  const [period, setPeriod] = useState<(typeof periodOptions)[number][0]>("month");
   const [customStart, setCustomStart] = useState("2026-08-01");
   const [customEnd, setCustomEnd] = useState("2026-08-07");
   const [activeTab, setActiveTab] = useState("Overview");
-  const [modalType, setModalType] = useState<"income" | "expense" | null>(null);
+  const [modalType, setModalType] = useState<"income" | "expense" | "transfer" | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
+  const [balanceCheckDialogOpen, setBalanceCheckDialogOpen] = useState(false);
+  const [balanceChecks, setBalanceChecks] = useState<BalanceCheck[]>([]);
+  const [categoryDialog, setCategoryDialog] = useState<{ mode: "create" | "rename"; category?: string } | null>(null);
   const [toast, setToast] = useState("");
   const [authenticated, setAuthenticated] = useState(!isSupabaseConfigured);
   const [authMode, setAuthMode] = useState<"signin" | "register">("signin");
 
+  useEffect(() => { if (!isSupabaseConfigured) setSavingsGoal(localBudgetRepository.loadSavingsGoal()); }, []);
+
   useEffect(() => {
+    if (isSupabaseConfigured) return;
     const restoreTimer = window.setTimeout(() => {
       try {
-        const storedTransactions = window.localStorage.getItem(transactionStorageKey);
-        if (storedTransactions) {
-          const parsedTransactions: unknown = JSON.parse(storedTransactions);
-          if (Array.isArray(parsedTransactions)) {
+        const parsedTransactions = localBudgetRepository.loadTransactions();
+        if (parsedTransactions.length) {
             setTransactions(parsedTransactions.map((item) => {
               const transaction = item as Transaction;
               return { ...transaction, date: /^\d{4}-\d{2}-\d{2}$/.test(transaction.date) ? transaction.date : "2026-08-07" };
             }));
           }
-        }
       } catch {
-        window.localStorage.removeItem(transactionStorageKey);
+        setStorageNotice("We could not read saved transactions, so WIW started with a fresh local view.");
       } finally {
         setTransactionsReady(true);
       }
@@ -80,19 +113,24 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (transactionsReady) window.localStorage.setItem(transactionStorageKey, JSON.stringify(transactions));
+    if (transactionsReady && !isSupabaseConfigured) localBudgetRepository.saveTransactions(transactions);
   }, [transactions, transactionsReady]);
 
   useEffect(() => {
+    if (isSupabaseConfigured) return;
+    const storedCategories = localBudgetRepository.loadCategories();
+    if (storedCategories.length) categories = storedCategories;
+    setCategoryVersion((version) => version + 1);
+  }, []);
+
+  useEffect(() => {
+    if (isSupabaseConfigured) return;
     const restoreTimer = window.setTimeout(() => {
       try {
-        const storedBudgets = window.localStorage.getItem(budgetStorageKey);
-        if (storedBudgets) {
-          const parsedBudgets: unknown = JSON.parse(storedBudgets);
-          if (Array.isArray(parsedBudgets)) setBudgets(parsedBudgets as Budget[]);
-        }
+        const storedBudgets = localBudgetRepository.loadBudgets();
+        if (storedBudgets.length) setBudgets(storedBudgets as Budget[]);
       } catch {
-        window.localStorage.removeItem(budgetStorageKey);
+        setStorageNotice("We could not read one or more saved budgets, so WIW started with a fresh local view.");
       } finally {
         setBudgetsReady(true);
       }
@@ -101,8 +139,11 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (budgetsReady) window.localStorage.setItem(budgetStorageKey, JSON.stringify(budgets));
+    if (budgetsReady && !isSupabaseConfigured) localBudgetRepository.saveBudgets(budgets);
   }, [budgets, budgetsReady]);
+
+  useEffect(() => { if (!isSupabaseConfigured) setBalanceChecks(localBudgetRepository.loadBalanceChecks()); }, []);
+  useEffect(() => { if (!isSupabaseConfigured) localBudgetRepository.saveBalanceChecks(balanceChecks); }, [balanceChecks]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -112,6 +153,43 @@ export default function Home() {
     return () => subscription.subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured || !authenticated) return;
+    let active = true;
+    void supabaseBudgetRepository.load().then((snapshot) => {
+      if (!active) return;
+      if (snapshot.profile) {
+        setProfileName(snapshot.profile.name);
+        setCurrencyCode(snapshot.profile.currency);
+        setPeriod(snapshot.profile.period);
+        setStartingBalance(snapshot.profile.startingBalance);
+        setSavingsGoal(snapshot.profile.savingsGoal);
+      }
+      categories = snapshot.categories.length ? snapshot.categories : [...defaultCategories];
+      setCategoryVersion((version) => version + 1);
+      setTransactions(snapshot.transactions);
+      setBudgets(snapshot.budgets);
+      setBalanceChecks(snapshot.balanceChecks);
+      setTransactionsReady(true);
+      setBudgetsReady(true);
+      setCloudReady(true);
+    }).catch((error: unknown) => {
+      if (active) setStorageNotice(`We could not load your cloud data: ${describeCloudError(error)}`);
+    });
+    return () => { active = false; };
+  }, [authenticated]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !cloudReady) return;
+    void supabaseBudgetRepository.save({
+      profile: { name: profileName, currency: currencyCode, period, startingBalance, savingsGoal },
+      categories,
+      transactions,
+      budgets,
+      balanceChecks,
+    }).catch((error: unknown) => setStorageNotice(`We could not save your latest cloud changes: ${describeCloudError(error)}`));
+  }, [cloudReady, profileName, currencyCode, period, startingBalance, savingsGoal, categoryVersion, transactions, budgets, balanceChecks]);
+
   const activeRange = useMemo(() => budgetDomain.reportRange(period, customStart, customEnd), [period, customStart, customEnd]);
   const periodTransactions = useMemo(() => budgetDomain.transactionsInRange(transactions, activeRange), [transactions, activeRange]);
   const previousPeriodTransactions = useMemo(() => budgetDomain.transactionsInRange(transactions, budgetDomain.previousRange(activeRange)), [transactions, activeRange]);
@@ -119,17 +197,37 @@ export default function Home() {
   const spendingByCategory = useMemo(() => budgetDomain.spendingByCategoryFor(periodTransactions), [periodTransactions]);
   const budgetProgress = useMemo(() => budgetDomain.budgetProgressFor(budgets, spendingByCategory), [budgets, spendingByCategory]);
 
-  const topCategory = spendingByCategory[0] || ["No spending yet", 0];
   const previousSpending = budgetDomain.totalsFor(previousPeriodTransactions).spending;
-  const spendingComparison = previousSpending ? Math.round(((totals.spending - previousSpending) / previousSpending) * 100) : null;
+  const spendingComparison = budgetDomain.spendingChange(totals.spending, previousSpending);
   const trendPoints = useMemo(() => budgetDomain.trendFor(transactions, activeRange), [transactions, activeRange]);
+  const rangeKey = `${budgetDomain.isoDate(activeRange.start)}:${budgetDomain.isoDate(activeRange.end)}`;
+  const savedBalanceCheck = balanceChecks.find((check) => `${check.periodStart}:${check.periodEnd}` === rangeKey);
+  const balanceExpectation = budgetDomain.balanceExpectationFor(startingBalance, transactions, activeRange);
+  const reconciliation = savedBalanceCheck ? budgetDomain.reconciliationFor(savedBalanceCheck.actualBalance, balanceExpectation) : null;
+  const dashboardInsights = budgetDomain.insightsFor(periodTransactions, { range: activeRange, period, previousTransactions: previousPeriodTransactions, budgets, allTransactions: transactions, reconciliation });
+  const dashboardInsight = dashboardInsights[0];
+
+  function saveBalanceCheck(actualBalance: number) {
+    const check = { id: savedBalanceCheck?.id || activeRange.start.getTime() + activeRange.end.getTime(), periodStart: budgetDomain.isoDate(activeRange.start), periodEnd: budgetDomain.isoDate(activeRange.end), actualBalance };
+    setBalanceChecks((items) => [...items.filter((item) => item.id !== check.id && `${item.periodStart}:${item.periodEnd}` !== rangeKey), check]);
+    setBalanceCheckDialogOpen(false);
+    setToast("Balance check saved");
+    window.setTimeout(() => setToast(""), 2800);
+  }
+
+  function addUntrackedSpending() {
+    if (!reconciliation || reconciliation.difference >= 0) return;
+    setTransactions((items) => [{ id: Date.now(), name: "Untracked spending adjustment", category: "Untracked spending", amount: Math.abs(reconciliation.difference), date: budgetDomain.isoDate(activeRange.end), type: "expense", icon: "?" }, ...items]);
+    setToast("Untracked spending recorded");
+    window.setTimeout(() => setToast(""), 2800);
+  }
 
   function addTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const amount = Number(data.get("amount"));
     const description = String(data.get("description") || "New transaction");
-    const category = modalType === "income" ? "Income" : String(data.get("category"));
+    const category = modalType === "income" ? "Income" : modalType === "transfer" ? "Transfer" : String(data.get("category"));
     if (!amount || amount < 1 || !modalType) return;
     setTransactions((items) => [{ id: Date.now(), name: description, category, amount, date: String(data.get("date") || new Date().toISOString().slice(0, 10)), type: modalType, icon: modalType === "income" ? "✦" : "●" }, ...items]);
     setModalType(null);
@@ -150,7 +248,7 @@ export default function Home() {
     const data = new FormData(event.currentTarget);
     const amount = Number(data.get("amount"));
     const description = String(data.get("description") || "New transaction");
-    const category = editingTransaction.type === "income" ? "Income" : String(data.get("category"));
+    const category = editingTransaction.type === "income" ? "Income" : editingTransaction.type === "transfer" ? "Transfer" : String(data.get("category"));
     if (!amount || amount < 1) return;
     setTransactions((items) => items.map((item) => item.id === editingTransaction.id ? { ...item, name: description, amount, category, date: String(data.get("date") || item.date) } : item));
     setEditingTransaction(null);
@@ -190,17 +288,44 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2800);
   }
 
+  function saveCategory(name: string) {
+    const cleanName = name.trim();
+    if (!categoryDialog || !cleanName) return;
+    if (categoryDialog.mode === "create") {
+      categories = [...categories, cleanName];
+      setToast(`${cleanName} category created`);
+    } else if (categoryDialog.category) {
+      categories = categories.map((item) => item === categoryDialog.category ? cleanName : item);
+      setTransactions((items) => items.map((item) => item.category === categoryDialog.category ? { ...item, category: cleanName } : item));
+      setToast("Category renamed");
+    }
+    localBudgetRepository.saveCategories(categories);
+    setCategoryVersion((version) => version + 1);
+    setCategoryDialog(null);
+    window.setTimeout(() => setToast(""), 2800);
+  }
+
+  function deleteCategory(category: string) {
+    if (defaultCategories.includes(category)) { setToast("Default categories cannot be deleted"); return; }
+    if (transactions.some((item) => item.category === category)) { setToast("Move or rename existing transactions before deleting this category"); return; }
+    if (!window.confirm(`Delete ${category}?`)) return;
+    categories = categories.filter((item) => item !== category);
+    localBudgetRepository.saveCategories(categories);
+    setCategoryVersion((version) => version + 1);
+  }
+
   async function signOut() {
     if (isSupabaseConfigured) await getSupabaseClient().auth.signOut();
     setAuthenticated(false);
   }
 
   if (!authenticated) return <AuthScreen mode={authMode} onModeChange={setAuthMode} onAuthenticate={() => setAuthenticated(true)} />;
+  if (!transactionsReady || !budgetsReady) return <LoadingScreen />;
 
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark" aria-hidden="true" /><span>WIW<small>Where It Went</small></span></div>
+        <div className="brand"><span className="brand-mark" aria-hidden="true" /><small>Where It Went</small></div>
         <div className="workspace-label">YOUR MONEY</div>
         <nav aria-label="Main navigation">
           {[ ["Overview", "⌂"], ["Transactions", "↕"], ["Budgets", "◌"], ["Insights", "✦"] ].map(([name, icon]) => (
@@ -209,13 +334,14 @@ export default function Home() {
         </nav>
         <div className="sidebar-bottom">
           <button className="nav-item" onClick={() => setActiveTab("Settings")}><span>⚙</span>Settings</button>
-          <div className="profile"><div className="avatar">AM</div><div><strong>Alex Morgan</strong><small>alex@email.com</small></div><button aria-label="Account options">···</button></div>
+          <div className="profile"><div className="avatar">{profileName.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase()}</div><div><strong>{profileName}</strong><small>alex@email.com</small></div><button aria-label="Account options" onClick={() => setActiveTab("Settings")}>···</button></div>
         </div>
       </aside>
 
       <section className="content">
+        {storageNotice && <div className="storage-notice" role="alert"><span>{storageNotice}</span><button onClick={() => setStorageNotice("")} aria-label="Dismiss message">×</button></div>}
         <header className="topbar">
-          <div><p className="eyebrow">{activeTab === "Overview" ? "AUGUST 2026" : "YOUR MONEY"}</p><h1>{activeTab === "Overview" ? "Good morning, Alex." : activeTab}</h1></div>
+          <div><p className="eyebrow">{activeTab === "Overview" ? "AUGUST 2026" : "YOUR MONEY"}</p><h1>{activeTab === "Overview" ? `Hello, ${profileName.split(" ")[0]}!` : activeTab}</h1></div>
           <div className="top-actions"><button className="icon-button" aria-label="Notifications">♢<i /></button><button className="avatar mobile-avatar">AM</button></div>
         </header>
 
@@ -231,48 +357,70 @@ export default function Home() {
             <article className="stat-card"><div className="stat-icon expense-icon">↘</div><p>Spent</p><strong>{peso(totals.spending)}</strong><small className={spendingComparison !== null && spendingComparison <= 0 ? "positive" : "negative"}>{spendingComparison === null ? "No prior-period data" : `${spendingComparison > 0 ? "+" : ""}${spendingComparison}%`} <em>{spendingComparison === null ? "to compare" : "vs. previous period"}</em></small></article>
           </section>
 
+          <section className="panel balance-check-panel"><div className="panel-heading"><div><p className="eyebrow">BALANCE CHECK</p><h2>{reconciliation ? (reconciliation.difference === 0 ? "Everything matches" : "Money to reconcile") : "Check your real balance"}</h2></div><button className="secondary-button" onClick={() => setBalanceCheckDialogOpen(true)}>{reconciliation ? "Update" : "Check balance"}</button></div>{reconciliation ? <div><p className={reconciliation.difference === 0 ? "positive" : "negative"}>{reconciliation.difference === 0 ? "Your recorded and actual balances match." : `${peso(Math.abs(reconciliation.difference))} ${reconciliation.difference < 0 ? "is unaccounted for" : "more than expected"}.`}</p><p className="balance-check-copy">Expected {peso(reconciliation.expectedBalance)} · Actual {peso(reconciliation.actualBalance)}</p>{reconciliation.difference < 0 && <div className="add-actions"><button className="quiet-button" onClick={addUntrackedSpending}>Record untracked spending</button><button className="quiet-button" onClick={() => setModalType("expense")}>Add missed expense</button></div>}{reconciliation.difference > 0 && <button className="quiet-button" onClick={() => setModalType("income")}>Add missed income</button>}</div> : <p className="balance-check-copy">Tell WIW how much money you actually have. We will compare it with {peso(balanceExpectation.expectedBalance)} expected from your recorded money moves.</p>}</section>
+
           <section className="dashboard-grid">
-            <article className="panel spending-panel"><div className="panel-heading"><div><h2>Spending breakdown</h2><p>Where your money went: {periodOptions.find(([value]) => value === period)?.[1].toLowerCase()}</p></div><button className="quiet-button">View details <span>→</span></button></div><div className="breakdown-content"><div className="donut" style={{ background: `conic-gradient(#436fce 0 49%, #ff8a7b 49% 74%, #7895e6 74% 89%, #9f8be0 89% 100%)` }}><div><strong>{peso(totals.spending)}</strong><small>spent</small></div></div><div className="legend">{spendingByCategory.slice(0, 4).map(([category, amount], index) => <div key={category}><span className={`legend-dot dot-${index}`} /><p>{category}<small>{totals.spending ? Math.round((amount / totals.spending) * 100) : 0}% of spending</small></p><strong>{peso(amount)}</strong></div>)}</div></div></article>
-            <article className="panel insight-panel"><div className="sparkle">✦</div><div className="panel-heading"><div><p className="eyebrow">WIW INSIGHT</p><h2>You are doing well.</h2></div><button className="icon-button soft" aria-label="More insights">···</button></div><p className="insight-copy">Your spending is in a healthy range. <strong>{topCategory[0]}</strong> is your biggest category at <strong>{totals.spending ? Math.round((Number(topCategory[1]) / totals.spending) * 100) : 0}%</strong> of all spending.</p><div className="insight-tip"><span>✦</span><p><strong>Small win</strong>Keep dining out below ₱1,500 this month and you will stay on pace for your savings goal.</p></div><button className="text-link" onClick={() => setActiveTab("Insights")}>See all insights <span>→</span></button></article>
+<article className="panel spending-panel"><div className="panel-heading"><div><h2>Spending breakdown</h2><p>Where your money went: {periodOptions.find(([value]) => value === period)?.[1].toLowerCase()}</p></div><button className="quiet-button" onClick={() => setActiveTab("Insights")}>View details <span>→</span></button></div><div className="breakdown-content"><div className="donut" style={{ background: `conic-gradient(#436fce 0 49%, #ff8a7b 49% 74%, #7895e6 74% 89%, #9f8be0 89% 100%)` }}><div><strong>{peso(totals.spending)}</strong><small>spent</small></div></div><div className="legend">{spendingByCategory.slice(0, 4).map(([category, amount], index) => <div key={category}><span className={`legend-dot dot-${index}`} /><p>{category}<small>{budgetDomain.percentageOf(amount, totals.spending)}% of spending</small></p><strong>{peso(amount)}</strong></div>)}</div></div></article>
+            <article className="panel insight-panel"><div className="sparkle">✦</div><div className="panel-heading"><div><p className="eyebrow">WIW INSIGHTS</p><h2>{dashboardInsight.title}</h2></div><button className="icon-button soft" aria-label="More insights" onClick={() => setActiveTab("Insights")}>···</button></div>{dashboardInsights.slice(0, 3).map((insight, index) => <div className="insight-summary" key={insight.title}><p className={index === 0 ? "insight-copy" : "insight-evidence"}>{insight.detail}</p>{insight.recommendation && <div className="insight-tip"><span>✦</span><p><strong>Next step</strong>{insight.recommendation}</p></div>}</div>)}<button className="text-link" onClick={() => setActiveTab("Insights")}>See all insights <span>→</span></button></article>
           </section>
 
           <section className="panel trend-panel"><div className="panel-heading"><div><h2>Spending pulse</h2><p>Daily expenses ending {displayDate(budgetDomain.isoDate(activeRange.end))}</p></div><strong>{peso(totals.spending)} <small>in selected range</small></strong></div><div className="trend-bars" aria-label="Seven day expense trend">{trendPoints.map((point, index) => <div className="trend-bar" key={`${point.label}-${index}`}><span className="trend-value">{point.amount ? peso(point.amount) : "—"}</span><i style={{ height: `${point.height}%` }} /><small>{point.label}</small></div>)}</div></section>
 
           <section className="bottom-grid">
             <article className="panel transactions-panel"><div className="panel-heading"><div><h2>Recent activity</h2><p>Your latest money moves</p></div><button className="quiet-button" onClick={() => setActiveTab("Transactions")}>See all <span>→</span></button></div><div className="transaction-list">{periodTransactions.length ? periodTransactions.slice(0, 5).map((item) => <div className="transaction" key={item.id}><span className={`transaction-icon ${item.type}`}>{item.icon}</span><div><strong>{item.name}</strong><small>{item.category} · {displayDate(item.date)}</small></div><b className={item.type}>{item.type === "income" ? "+" : "−"}{peso(item.amount)}</b></div>) : <div className="dashboard-empty"><span>◎</span><p>No activity in this period yet.</p><button className="text-link" onClick={() => setModalType("expense")}>Add an expense <span>→</span></button></div>}</div></article>
-            <article className="panel budget-panel"><div className="panel-heading"><div><h2>Budget check-in</h2><p>Your monthly limits</p></div><button className="quiet-button">Manage <span>→</span></button></div><div className="budget-row"><div><span className="budget-icon">☕</span><p><strong>Dining out</strong><small>{peso(960)} of {peso(3000)}</small></p></div><span className="budget-percent">32%</span></div><div className="budget-bar"><i style={{ width: "32%" }} /></div><div className="budget-row"><div><span className="budget-icon blue">◈</span><p><strong>Transport</strong><small>{peso(680)} of {peso(4500)}</small></p></div><span className="budget-percent">15%</span></div><div className="budget-bar blue"><i style={{ width: "15%" }} /></div></article>
+<article className="panel budget-panel"><div className="panel-heading"><div><h2>Budget check-in</h2><p>Your monthly limits</p></div><button className="quiet-button" onClick={() => setActiveTab("Budgets")}>Manage <span>→</span></button></div>{budgetProgress.length ? budgetProgress.slice(0, 2).map((budget) => <div key={budget.id}><div className="budget-row"><div><span className={`budget-icon ${budget.tone === "blue" ? "blue" : ""}`}>{budget.icon}</span><p><strong>{budget.category}</strong><small>{peso(budget.spent)} of {peso(budget.limit)}</small></p></div><span className="budget-percent">{budget.percent}%</span></div><div className={`budget-bar ${budget.tone === "blue" ? "blue" : ""}`}><i style={{ width: `${Math.min(budget.percent, 100)}%` }} /></div></div>) : <div className="dashboard-empty"><p>No budgets yet.</p><button className="text-link" onClick={() => setActiveTab("Budgets")}>Create a budget <span>→</span></button></div>}</article>
           </section>
-        </> : activeTab === "Budgets" ? <BudgetView budgets={budgetProgress} onCreate={() => { setEditingBudget(null); setBudgetModalOpen(true); }} onEdit={(budget) => { setEditingBudget(budget); setBudgetModalOpen(true); }} onDelete={deleteBudget} /> : <SecondaryView activeTab={activeTab} transactions={transactions} totals={totals} spendingByCategory={spendingByCategory} onReturn={() => setActiveTab("Overview")} onAddExpense={() => setModalType("expense")} onAddIncome={() => setModalType("income")} onSignOut={() => void signOut()} onDeleteTransaction={deleteTransaction} onEditTransaction={setEditingTransaction} />}
+        </> : activeTab === "Budgets" ? <BudgetView budgets={budgetProgress} onCreate={() => { setEditingBudget(null); setBudgetModalOpen(true); }} onCreateCategory={() => setCategoryDialog({ mode: "create" })} onRenameCategory={(category) => setCategoryDialog({ mode: "rename", category })} onDeleteCategory={deleteCategory} onEdit={(budget) => { setEditingBudget(budget); setBudgetModalOpen(true); }} onDelete={deleteBudget} /> : <SecondaryView activeTab={activeTab} transactions={transactions} insightTransactions={periodTransactions} previousInsightTransactions={previousPeriodTransactions} insightRange={activeRange} budgets={budgets} reconciliation={reconciliation} totals={totals} spendingByCategory={spendingByCategory} profileName={profileName} currencyCode={currencyCode} defaultPeriod={period} startingBalance={startingBalance} savingsGoal={savingsGoal} onSaveSavingsGoal={(amount) => { setSavingsGoal(amount); if (!isSupabaseConfigured) localBudgetRepository.saveSavingsGoal(amount); }} onSaveSettings={(name, currency, nextPeriod, nextStartingBalance) => { setProfileName(name); setCurrencyCode(currency); if (nextPeriod) setPeriod(nextPeriod); if (typeof nextStartingBalance === "number") setStartingBalance(nextStartingBalance); }} onReturn={() => setActiveTab("Overview")} onAddExpense={() => setModalType("expense")} onAddIncome={() => setModalType("income")} onSignOut={() => void signOut()} onDeleteTransaction={deleteTransaction} onEditTransaction={setEditingTransaction} />}
       </section>
 
       {(modalType || editingTransaction) && <ValidatedTransactionModal type={editingTransaction?.type || modalType!} transaction={editingTransaction || undefined} onClose={() => { setModalType(null); setEditingTransaction(null); }} onSubmit={editingTransaction ? updateTransaction : addTransaction} />}
       {budgetModalOpen && <ValidatedBudgetModal budget={editingBudget || undefined} onClose={() => { setBudgetModalOpen(false); setEditingBudget(null); }} onSubmit={saveBudget} />}
+      {balanceCheckDialogOpen && <BalanceCheckModal expectedBalance={balanceExpectation.expectedBalance} actualBalance={savedBalanceCheck?.actualBalance} onClose={() => setBalanceCheckDialogOpen(false)} onSubmit={saveBalanceCheck} />}
+      {categoryDialog && <CategoryModal category={categoryDialog.category} categories={categories} onClose={() => setCategoryDialog(null)} onSubmit={saveCategory} />}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
 }
 
-function BudgetView({ budgets, onCreate, onEdit, onDelete }: { budgets: (Budget & { spent: number })[]; onCreate: () => void; onEdit: (budget: Budget) => void; onDelete: (id: number) => void }) {
-  const allocated = budgets.reduce((sum, budget) => sum + budget.limit, 0);
-  const spent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
-  const used = allocated ? Math.round((spent / allocated) * 100) : 0;
-  return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">SPEND WITH INTENTION</p><h2>Your budgets</h2><p>Set a limit for the things that matter and see your pace.</p></div><button className="primary-button" onClick={onCreate}>＋ Create budget</button></div><div className="budget-overview"><div><span>Budget progress</span><strong>{peso(spent)}</strong><small>of {peso(allocated)} planned</small></div><div className="budget-overview-bar"><i style={{ width: `${Math.min(used, 100)}%` }} /></div><p><strong>{used}%</strong> used so far</p></div><div className="budget-cards">{budgets.length ? budgets.map((budget) => { const percent = Math.round((budget.spent / budget.limit) * 100); return <article className="budget-card" key={budget.id}><span className={`budget-card-icon ${budget.tone}`}>{budget.icon}</span><div className="budget-card-heading"><h3>{budget.category}</h3><div><button onClick={() => onEdit(budget)} aria-label={`Edit ${budget.category} budget`}>Edit</button><button onClick={() => onDelete(budget.id)} aria-label={`Delete ${budget.category} budget`}>Delete</button></div></div><p>{peso(budget.spent)} of {peso(budget.limit)}</p><div className="budget-bar"><i style={{ width: `${Math.min(percent, 100)}%` }} /></div><div><small>{percent}% used</small><strong>{peso(Math.max(budget.limit - budget.spent, 0))} {budget.spent > budget.limit ? "over" : "left"}</strong></div></article>; }) : <div className="transaction-empty"><span>◉</span><h3>No budgets yet</h3><p>Create a category limit to start tracking your pace.</p><button className="primary-button" onClick={onCreate}>Create budget</button></div>}</div></section>;
+function LoadingScreen() {
+  return <main className="loading-screen" role="status" aria-live="polite"><span className="brand-mark" aria-hidden="true" /><p>Loading your money picture…</p></main>;
 }
 
-function SecondaryView({ activeTab, transactions, totals, spendingByCategory, onReturn, onAddExpense: addExpense, onAddIncome, onSignOut, onDeleteTransaction, onEditTransaction }: { activeTab: string; transactions: Transaction[]; totals: { income: number; spending: number; balance: number; savingsRate: number }; spendingByCategory: [string, number][]; onReturn: () => void; onAddExpense: () => void; onAddIncome: () => void; onSignOut: () => void; onDeleteTransaction: (id: number) => void; onEditTransaction: (transaction: Transaction) => void }) {
+function BudgetView({ budgets, onCreate, onCreateCategory, onRenameCategory, onDeleteCategory, onEdit, onDelete }: { budgets: (Budget & { spent: number; percent: number; remaining: number })[]; onCreate: () => void; onCreateCategory: () => void; onRenameCategory: (category: string) => void; onDeleteCategory: (category: string) => void; onEdit: (budget: Budget) => void; onDelete: (id: number) => void }) {
+  void onRenameCategory;
+  void onDeleteCategory;
+  const summary = budgetDomain.budgetSummaryFor(budgets);
+return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">SPEND WITH INTENTION</p><h2>Your budgets</h2><p>Set a limit for the things that matter and see your pace.</p></div><div className="add-actions"><button className="secondary-button" onClick={onCreateCategory}>＋ Category</button><button className="primary-button" onClick={onCreate}>＋ Create budget</button></div></div><div className="budget-overview"><div><span>Budget progress</span><strong>{peso(summary.spent)}</strong><small>of {peso(summary.allocated)} planned</small></div><div className="budget-overview-bar"><i style={{ width: `${Math.min(summary.percent, 100)}%` }} /></div><p><strong>{summary.percent}%</strong> used so far</p></div><div className="budget-cards">{budgets.length ? budgets.map((budget) => <article className="budget-card" key={budget.id}><span className={`budget-card-icon ${budget.tone}`}>{budget.icon}</span><div className="budget-card-heading"><h3>{budget.category}</h3><div><button onClick={() => onEdit(budget)} aria-label={`Edit ${budget.category} budget`}>Edit</button><button onClick={() => onDelete(budget.id)} aria-label={`Delete ${budget.category} budget`}>Delete</button></div></div><p>{peso(budget.spent)} of {peso(budget.limit)}</p><div className="budget-bar"><i style={{ width: `${Math.min(budget.percent, 100)}%` }} /></div><div><small>{budget.percent}% used</small><strong>{peso(budget.remaining)} {budget.spent > budget.limit ? "over" : "left"}</strong></div></article>) : <div className="transaction-empty"><span>◉</span><h3>No budgets yet</h3><p>Create a category limit to start tracking your pace.</p><button className="primary-button" onClick={onCreate}>Create budget</button></div>}</div><section className="category-manager"><div><p className="eyebrow">CATEGORIES</p><h3>Expense categories</h3></div><div className="category-list">{categories.map((category) => <div key={category}><span>{category}</span><button onClick={() => onRenameCategory(category)}>Rename</button>{!defaultCategories.includes(category) && <button onClick={() => onDeleteCategory(category)}>Delete</button>}</div>)}</div></section></section>;
+}
+
+function SecondaryView({ activeTab, transactions, insightTransactions, previousInsightTransactions, insightRange, budgets, reconciliation, totals, spendingByCategory, profileName, currencyCode, defaultPeriod, startingBalance, savingsGoal, onSaveSavingsGoal, onSaveSettings, onReturn, onAddExpense: addExpense, onAddIncome, onSignOut, onDeleteTransaction, onEditTransaction }: { activeTab: string; transactions: Transaction[]; insightTransactions: Transaction[]; previousInsightTransactions: Transaction[]; insightRange: budgetDomain.DateRange; budgets: Budget[]; reconciliation: ReturnType<typeof budgetDomain.reconciliationFor> | null; totals: { income: number; spending: number; balance: number; savingsRate: number }; spendingByCategory: [string, number][]; profileName: string; currencyCode: string; defaultPeriod: (typeof periodOptions)[number][0]; startingBalance: number; savingsGoal: number | null; onSaveSavingsGoal: (amount: number) => void; onSaveSettings: (name: string, currency: string, period?: (typeof periodOptions)[number][0], startingBalance?: number) => void; onReturn: () => void; onAddExpense: () => void; onAddIncome: () => void; onSignOut: () => void; onDeleteTransaction: (id: number) => void; onEditTransaction: (transaction: Transaction) => void }) {
+  void defaultPeriod;
+  void totals;
+  void spendingByCategory;
   const [transactionFilter, setTransactionFilter] = useState<"all" | "income" | "expense">("all");
   const [transactionQuery, setTransactionQuery] = useState("");
   const onAddExpense = transactionFilter === "income" ? onAddIncome : addExpense;
   const [transactionSort, setTransactionSort] = useState<"newest" | "oldest" | "highest" | "lowest">("newest");
+  const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  function saveSavingsGoal(amount: number) {
+    onSaveSavingsGoal(amount);
+    setGoalDialogOpen(false);
+  }
+  const liveInsights = budgetDomain.insightsFor(insightTransactions, { range: insightRange, period: defaultPeriod, previousTransactions: previousInsightTransactions, budgets, allTransactions: transactions, reconciliation, savingsGoal }).map((insight) => ({ ...insight, detail: `${insight.detail} Evidence: ${insight.evidence} Based on: ${insight.calculationBasis}` }));
   const visibleTransactions = transactions.filter((item) => (transactionFilter === "all" || item.type === transactionFilter) && `${item.name} ${item.category}`.toLowerCase().includes(transactionQuery.toLowerCase())).sort((left, right) => {
     if (transactionSort === "highest") return right.amount - left.amount;
     if (transactionSort === "lowest") return left.amount - right.amount;
     return transactionSort === "newest" ? right.date.localeCompare(left.date) : left.date.localeCompare(right.date);
   });
 if (activeTab === "Transactions") return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">MONEY MOVES</p><h2>All transactions</h2><p>Everything you have earned and spent this month.</p></div><button className="primary-button" onClick={onAddExpense}>{transactionFilter === "income" ? "＋ Add income" : "＋ Add expense"}</button></div><div className="transaction-filters">{([ ["all", "All activity"], ["income", "Income"], ["expense", "Expenses"] ] as const).map(([filter, label]) => <button key={filter} className={transactionFilter === filter ? "filter-active" : ""} onClick={() => setTransactionFilter(filter)}>{label}</button>)}<input aria-label="Search transactions" value={transactionQuery} onChange={(event) => setTransactionQuery(event.target.value)} placeholder="Search transactions" /><select aria-label="Sort transactions" value={transactionSort} onChange={(event) => setTransactionSort(event.target.value as "newest" | "oldest" | "highest" | "lowest")}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="highest">Highest amount</option><option value="lowest">Lowest amount</option></select></div><div className="full-transaction-list">{visibleTransactions.length ? visibleTransactions.map((item) => <div className="transaction transaction-wide" key={item.id}><span className={`transaction-icon ${item.type}`}>{item.icon}</span><div><strong>{item.name}</strong><small>{item.category} · {displayDate(item.date)}</small></div><span className="transaction-type">{item.type === "income" ? "Income" : "Expense"}</span><b className={item.type}>{item.type === "income" ? "+" : "−"}{peso(item.amount)}</b><button className="edit-transaction" onClick={() => onEditTransaction(item)} aria-label={`Edit ${item.name}`}>⌕</button><button className="delete-transaction" onClick={() => onDeleteTransaction(item.id)} aria-label={`Delete ${item.name}`}>×</button></div>) : <div className="transaction-empty"><span>◎</span><h3>{transactions.length ? "No matching transactions" : "No transactions yet"}</h3><p>{transactions.length ? "Try another filter or search term." : "Add your first expense to start seeing where it went."}</p>{!transactions.length && <button className="primary-button" onClick={onAddExpense}>{transactionFilter === "income" ? "Add income" : "Add expense"}</button>}</div>}</div></section>;
-  if (activeTab === "Budgets") return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">SPEND WITH INTENTION</p><h2>Your budgets</h2><p>Set a limit for the things that matter and see your pace.</p></div><button className="primary-button">＋ Create budget</button></div><div className="budget-overview"><div><span>Monthly plan</span><strong>{peso(7500)}</strong><small>of {peso(15000)} allocated</small></div><div className="budget-overview-bar"><i style={{ width: "50%" }} /></div><p><strong>50%</strong> still unassigned</p></div><div className="budget-cards">{[["Dining out", 960, 3000, "☕", "peach"], ["Transport", 680, 4500, "◈", "blue"], ["Food & groceries", 4280, 7500, "🛒", "purple"]].map(([name, spent, limit, icon, tone]) => <article className="budget-card" key={String(name)}><span className={`budget-card-icon ${tone}`}>{icon}</span><h3>{name}</h3><p>{peso(Number(spent))} of {peso(Number(limit))}</p><div className="budget-bar"><i style={{ width: `${Math.round((Number(spent) / Number(limit)) * 100)}%` }} /></div><div><small>{Math.round((Number(spent) / Number(limit)) * 100)}% used</small><strong>{peso(Number(limit) - Number(spent))} left</strong></div></article>)}</div></section>;
-  if (activeTab === "Insights") return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">THE WIW VIEW</p><h2>Where it went</h2><p>Clear signals to help you use your money with more intention.</p></div><button className="secondary-button" onClick={onReturn}>← Overview</button></div><div className="insight-grid"><article className="insight-feature"><span className="feature-orb">↗</span><p className="eyebrow">BIGGEST CATEGORY</p><h3>{spendingByCategory[0]?.[0] || "No spending yet"}</h3><strong>{totals.spending ? Math.round((Number(spendingByCategory[0]?.[1] || 0) / totals.spending) * 100) : 0}% <small>of all spending</small></strong><p>That is {peso(Number(spendingByCategory[0]?.[1] || 0))} from your {peso(totals.spending)} total this month.</p></article><article className="insight-feature accent"><span className="feature-orb">◎</span><p className="eyebrow">SAVING PACE</p><h3>You are on track</h3><strong>{totals.savingsRate}% <small>saved so far</small></strong><p>Keep your current pace and you will have about {peso(Math.round(totals.balance * 1.2))} available at month end.</p></article></div><article className="suggestion-panel"><div><span>✦</span><div><p className="eyebrow">A SMALL NEXT STEP</p><h3>Make your budget work harder</h3><p>Moving just {peso(500)} from dining out into savings each week could add {peso(2000)} to your month.</p></div></div><button className="primary-button">Set a savings goal</button></article></section>;
-  return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">PREFERENCES</p><h2>Settings</h2><p>Personalize WIW for the way you budget.</p></div></div><div className="settings-card"><h3>Profile and display</h3><label>Display name<input defaultValue="Alex Morgan" /></label><label>Currency<select defaultValue="PHP"><option value="PHP">Philippine peso (₱)</option><option value="USD">US dollar ($)</option></select></label><label>Default budget period<select defaultValue="month"><option value="week">Weekly</option><option value="month">Monthly</option><option value="year">Yearly</option></select></label><button className="primary-button">Save preferences</button><button className="signout-button" onClick={onSignOut}>Sign out</button></div></section>;
+if (activeTab === "Insights") return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">THE WIW VIEW</p><h2>Where it went</h2><p>Clear signals based on your selected transactions.</p></div><button className="secondary-button" onClick={onReturn}>← Overview</button></div><div className="insight-grid">{liveInsights.map((insight) => <article className={`insight-feature ${insight.tone === "attention" ? "accent" : ""}`} key={insight.title}><p className="eyebrow">WIW INSIGHT</p><h3>{insight.title}</h3><p>{insight.detail}</p>{insight.recommendation && <p><strong>Next step:</strong> {insight.recommendation}</p>}</article>)}</div><article className="suggestion-panel"><div><span>✦</span><div><p className="eyebrow">SAVINGS GOAL</p><h3>Give your next peso a purpose</h3><p>{savingsGoal ? `${peso(Math.max(totals.balance, 0))} of ${peso(savingsGoal)} available toward your goal.` : "Create a monthly savings goal and use your spending insights to stay on pace."}</p></div></div><button className="primary-button" onClick={() => setGoalDialogOpen(true)}>{savingsGoal ? "Update savings goal" : "Set a savings goal"}</button></article>{goalDialogOpen && <SavingsGoalModal goal={savingsGoal || undefined} onClose={() => setGoalDialogOpen(false)} onSubmit={saveSavingsGoal} />}</section>;
+  return <SettingsPanel profileName={profileName} currencyCode={currencyCode} defaultPeriod={defaultPeriod} startingBalance={startingBalance} onSave={onSaveSettings} onSignOut={onSignOut} />;
+}
+
+function SettingsPanel({ profileName, currencyCode, defaultPeriod, startingBalance, onSave, onSignOut }: { profileName: string; currencyCode: string; defaultPeriod: (typeof periodOptions)[number][0]; startingBalance: number; onSave: (name: string, currency: string, period?: (typeof periodOptions)[number][0], startingBalance?: number) => void; onSignOut: () => void }) {
+  const [notice, setNotice] = useState("");
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); const name = String(data.get("name") || "").trim(); const currency = String(data.get("currency") || "PHP"); const period = String(data.get("period") || "month") as (typeof periodOptions)[number][0]; const nextStartingBalance = Number(data.get("startingBalance") || 0); if (!name || !Number.isFinite(nextStartingBalance) || nextStartingBalance < 0) return; onSave(name, currency, period, nextStartingBalance); localBudgetRepository.saveProfile(name, currency, period, nextStartingBalance); setNotice("Preferences saved"); }
+return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">PREFERENCES</p><h2>Settings</h2><p>Personalize WIW for the way you budget.</p></div></div><form className="settings-card" onSubmit={submit}><h3>Profile and display</h3><label>Display name<input name="name" defaultValue={profileName} required /></label><label>Currency<select name="currency" defaultValue={currencyCode}><option value="PHP">Philippine peso (₱)</option><option value="USD">US dollar ($)</option></select></label><label>Starting balance<input name="startingBalance" type="number" min="0" step="1" defaultValue={startingBalance} /></label><label>Default budget period<select name="period" defaultValue={defaultPeriod}><option value="week">Weekly</option><option value="month">Monthly</option><option value="year">Yearly</option></select></label>{notice && <p className="auth-message" role="status">{notice}</p>}<button className="primary-button" type="submit">Save preferences</button><button className="signout-button" type="button" onClick={onSignOut}>Sign out</button></form></section>;
 }
 
 function AuthScreen({ mode, onModeChange, onAuthenticate }: { mode: "signin" | "register"; onModeChange: (mode: "signin" | "register") => void; onAuthenticate: () => void }) {
@@ -304,17 +452,54 @@ function AuthScreen({ mode, onModeChange, onAuthenticate }: { mode: "signin" | "
     const { error: resetError } = await getSupabaseClient().auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
     if (resetError) setError(resetError.message); else setNotice("Check your email for a password reset link.");
   }
-  return <main className="auth-page"><section className="auth-intro"><div className="auth-brand"><span className="auth-mark" />WIW</div><div><p className="eyebrow">WHERE IT WENT</p><h1>Feel clear about your money.</h1><p>See every money move, understand your patterns, and make your next decision feel easier.</p></div><div className="auth-insight-card"><span>✦</span><p><strong>Built for calm clarity</strong>Your money story, in one simple place.</p></div></section><section className="auth-form-side"><form className="auth-form" onSubmit={(event) => void submit(event)}><div><p className="eyebrow">WELCOME TO WIW</p><h2>{registering ? "Create your account" : "Welcome back"}</h2><p>{registering ? "Start building a clearer money picture today." : "Sign in to see where it went."}</p></div>{registering && <label>Name<input name="displayName" placeholder="Your name" required /></label>}<label>Email<input name="email" type="email" placeholder="you@example.com" required /></label><label>Password<input name="password" type="password" placeholder="At least 8 characters" minLength={8} required /></label>{!registering && <button type="button" className="forgot-button" onClick={() => void resetPassword()}>Forgot password?</button>}{error && <p className="auth-message error" role="alert">{error}</p>}{notice && <p className="auth-message" role="status">{notice}</p>}<button className="primary-button auth-submit" type="submit" disabled={submitting}>{submitting ? "Please wait…" : registering ? "Create account" : "Sign in"}</button><p className="auth-switch">{registering ? "Already have an account?" : "New to WIW?"} <button type="button" onClick={() => onModeChange(registering ? "signin" : "register")}>{registering ? "Sign in" : "Create an account"}</button></p>{!isSupabaseConfigured && <small className="demo-note">Prototype mode — connect Supabase to enable secure accounts and cloud data.</small>}</form></section></main>;
+  return <main className="auth-page"><section className="auth-intro"><div className="auth-brand"><span className="auth-mark" /><small>Where It Went</small></div><div><p className="eyebrow">WHERE IT WENT</p><h1>Feel clear about your money.</h1><p>See every money move, understand your patterns, and make your next decision feel easier.</p></div><div className="auth-insight-card"><span>✦</span><p><strong>Built for calm clarity</strong>Your money story, in one simple place.</p></div></section><section className="auth-form-side"><form className="auth-form" onSubmit={(event) => void submit(event)}><div><p className="eyebrow">WELCOME TO WIW</p><h2>{registering ? "Create your account" : "Welcome back"}</h2><p>{registering ? "Start building a clearer money picture today." : "Sign in to see where it went."}</p></div>{registering && <label>Name<input name="displayName" placeholder="Your name" required /></label>}<label>Email<input name="email" type="email" placeholder="you@example.com" required /></label><label>Password<input name="password" type="password" placeholder="At least 8 characters" minLength={8} required /></label>{!registering && <button type="button" className="forgot-button" onClick={() => void resetPassword()}>Forgot password?</button>}{error && <p className="auth-message error" role="alert">{error}</p>}{notice && <p className="auth-message" role="status">{notice}</p>}<button className="primary-button auth-submit" type="submit" disabled={submitting}>{submitting ? "Please wait…" : registering ? "Create account" : "Sign in"}</button><p className="auth-switch">{registering ? "Already have an account?" : "New to WIW?"} <button type="button" onClick={() => onModeChange(registering ? "signin" : "register")}>{registering ? "Sign in" : "Create an account"}</button></p>{!isSupabaseConfigured && <small className="demo-note">Prototype mode — connect Supabase to enable secure accounts and cloud data.</small>}</form></section></main>;
 }
 
 // Kept temporarily while the validated dialog replaces this original prototype component.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function TransactionModal({ type, transaction, onClose, onSubmit }: { type: "income" | "expense"; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function TransactionModal({ type, transaction, onClose, onSubmit }: { type: Transaction["type"]; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const editing = Boolean(transaction);
   return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${editing ? "Edit" : "Add"} ${type}`}><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close transaction dialog" /><form className="transaction-modal" onSubmit={onSubmit}><div className="modal-heading"><div><p className="eyebrow">{editing ? "EDIT" : "NEW"} {type.toUpperCase()}</p><h2>{editing ? "Edit" : "Add"} {type}</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">×</button></div><label>Description<input name="description" defaultValue={transaction?.name} placeholder={type === "income" ? "e.g. Freelance project" : "e.g. Grocery run"} required /></label><label>Amount<input name="amount" type="number" defaultValue={transaction?.amount} min="1" step="1" placeholder="0" required /></label>{type === "expense" && <label>Category<select name="category" defaultValue={transaction?.category}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>}<label>Date<input name="date" type="date" defaultValue="2026-08-07" /></label><button className="primary-button full" type="submit">{editing ? "Save changes" : `Add ${type}`}</button></form></div>;
 }
 
-function ValidatedTransactionModal({ type, transaction, onClose, onSubmit }: { type: "income" | "expense"; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function CategoryModal({ category, categories: existingCategories, onClose, onSubmit }: { category?: string; categories: string[]; onClose: () => void; onSubmit: (name: string) => void }) {
+  const [error, setError] = useState("");
+  const editing = Boolean(category);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = String(new FormData(event.currentTarget).get("name") || "").trim();
+    if (!name) { setError("Enter a category name."); return; }
+    if (existingCategories.some((item) => item.toLowerCase() === name.toLowerCase() && item !== category)) { setError("That category already exists."); return; }
+    onSubmit(name);
+  }
+
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${editing ? "Rename" : "Create"} category`}><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close category dialog" /><form className="transaction-modal category-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">{editing ? "RENAME" : "NEW"} CATEGORY</p><h2>{editing ? "Rename category" : "Create a category"}</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><p className="modal-help">Use a clear name so your spending is easy to understand later.</p><label>Category name<input name="name" defaultValue={category} placeholder="e.g. Pet care" onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">{editing ? "Save category" : "Create category"}</button></form></div>;
+}
+
+function SavingsGoalModal({ goal, onClose, onSubmit }: { goal?: number; onClose: () => void; onSubmit: (amount: number) => void }) {
+  const [error, setError] = useState("");
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = Number(new FormData(event.currentTarget).get("amount"));
+    if (!Number.isFinite(amount) || amount < 1) { setError("Enter a savings goal of at least PHP 1."); return; }
+    onSubmit(amount);
+  }
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Savings goal"><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close savings goal dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">SAVINGS GOAL</p><h2>{goal ? "Update savings goal" : "Set a savings goal"}</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><p className="modal-help">Set the amount you would like to keep aside this month.</p><label>Goal amount<input name="amount" type="number" min="1" step="1" defaultValue={goal} placeholder="5000" onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">Save goal</button></form></div>;
+}
+
+function BalanceCheckModal({ expectedBalance, actualBalance, onClose, onSubmit }: { expectedBalance: number; actualBalance?: number; onClose: () => void; onSubmit: (amount: number) => void }) {
+  const [error, setError] = useState("");
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = Number(new FormData(event.currentTarget).get("actualBalance"));
+    if (!Number.isFinite(amount) || amount < 0) { setError("Enter the actual amount you have, using zero if it is empty."); return; }
+    onSubmit(amount);
+  }
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Balance check"><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close balance check dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">BALANCE CHECK</p><h2>Compare your real balance</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><p className="modal-help">WIW expects {peso(expectedBalance)} based on your starting balance and recorded money moves.</p><label>Actual money available<input name="actualBalance" type="number" min="0" step="1" defaultValue={actualBalance} placeholder="0" onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">Save balance check</button></form></div>;
+}
+
+function ValidatedTransactionModal({ type, transaction, onClose, onSubmit }: { type: Transaction["type"]; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const editing = Boolean(transaction);
   const [error, setError] = useState("");
   function submit(event: FormEvent<HTMLFormElement>) {

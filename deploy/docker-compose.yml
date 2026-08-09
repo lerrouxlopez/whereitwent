@@ -1,0 +1,25 @@
+services:
+  wiw:
+    image: ${WIW_IMAGE}
+    restart: unless-stopped
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - wiw
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      WIW_DOMAIN: ${WIW_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

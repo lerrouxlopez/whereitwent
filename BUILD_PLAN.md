@@ -7,14 +7,27 @@
 | Milestone | Status | Owner | Last updated | Notes |
 | --- | --- | --- | --- | --- |
 | 0. Project foundation | `[-]` | Codex | 2026-08-07 | Web app foundation complete; shared workspace and mobile app remain. |
-| 1. Shared domain layer | `[-]` | Codex | 2026-08-07 | Shared transaction and budget calculations now power the web app; insight rules, formatting, and tests remain. |
-| 2. Web frontend, static-first | `[-]` | Codex | 2026-08-07 | Date-driven reporting, comparisons, trend chart, empty states, keyboard focus, and clear form feedback are in place; per-screen loading/error states remain. |
-| 3. Interactive frontend and local persistence | `[-]` | Codex | 2026-08-07 | Transactions and budgets can be managed and retained locally, with filtering, search, and sorting; repository boundary remains. |
-| 4. Mobile frontend | `[ ]` | Unassigned | — | — |
-| 5. Supabase backend and authentication | `[-]` | Codex | 2026-08-07 | Secure schema, RLS, and client auth wiring are ready; live project connection remains. |
+| 1. Shared domain layer | `[x]` | Codex | 2026-08-07 | Shared domain logic, currency formatting, mock data, and five focused edge-case tests are complete and verified. |
+| 2. Web frontend, static-first | `[x]` | Codex | 2026-08-07 | All static web screens, responsive layouts, loading, empty, recovery-error, and form-feedback states are complete; remaining interactivity belongs to Milestone 3. |
+| 3. Interactive frontend and local persistence | `[x]` | Codex | 2026-08-07 | Local flows, persistence, live reporting, and domain separation are complete and verified by build, lint, domain, repository, and rendered-shell checks. |
+| 3.5 Balance reconciliation | `[x]` | Codex | 2026-08-09 | Expected-versus-actual balance checks, persisted records, guided adjustments, and transfer-safe calculations are complete. |
+| 3.6 Insight intelligence | `[x]` | Codex | 2026-08-09 | Explainable, prioritized live insight feeds and threshold coverage are complete and verified. |
+| 4. Supabase backend, live web app, and deployment | `[-]` | Codex | 2026-08-09 | Local production container and VPS Compose configuration are verified. Publishing and live deployment await GitHub CLI authentication, GitHub Action settings, DNS, and VPS SSH access. |
+| 5. Mobile frontend | `[ ]` | Unassigned | — | Starts after the live web app is operating successfully. |
 | 6. Test, polish, and release | `[ ]` | Unassigned | — | — |
 
 ## How to maintain this plan
+
+## Audit correction — 2026-08-07
+
+This audit replaces earlier optimistic completion markers. A checked item means complete user-facing behavior exists and was verified, not just that part of a screen was built.
+
+- **Categories:** custom categories can now be created, renamed, and deleted locally; they appear in expense and budget forms. Deletion is prevented while a category has transactions.
+- **Settings:** name, currency, and preferred period are saved and restored locally. Currency display was user-verified after a refresh.
+- **Insights/goals:** generated cards replace the legacy static cards. Savings goals show available-balance progress and restore locally; insight calculations follow the selected dashboard period.
+- **Dashboard:** shortcuts navigate and the budget check-in uses live budget progress.
+- **Supabase:** schema, RLS SQL, client boundary, and auth UI are scaffolds only; no project is connected, no migration has run, and no RLS check was performed.
+- **Tests:** seven focused domain and repository tests cover period boundaries, bi-weekly ranges, totals, insight thresholds, and local persistence. Two rendered-shell/UI-wiring checks protect the current web shell; dedicated browser interaction tests remain Milestone 6 coverage work.
 
 1. Before starting a task, change it from `[ ]` to `[-]` and assign the coding agent in the progress table or milestone note.
 2. When a task is verified, change it to `[x]` and record the verification performed (for example, `typecheck`, unit tests, or a manual flow).
@@ -58,7 +71,7 @@ docs/
 - [x] React/Vite/TypeScript app under `apps/web`
 - [ ] Expo/TypeScript app under `apps/mobile`
 - [ ] Shared TypeScript packages under `packages`
-- [ ] Linting, formatting, type checking, and test commands
+- [-] Linting, build, and test commands — `npm run lint` and `npm test` pass; formatting and a separate type-check command remain.
 - [ ] Environment-variable examples with no secrets committed
 
 ### Acceptance checks
@@ -72,47 +85,47 @@ docs/
 
 Build this before feature UI so totals and insights remain consistent.
 
-**Status:** `[-]`  
-**Completion note:** 2026-08-07 — Shared types plus date ranges, totals, category spending, trends, and budget progress now live in the web domain module. Lint and production build verified; insight rules, formatting, and unit tests remain.
+**Status:** `[x]`  
+**Completion note:** 2026-08-07 — Shared types, date ranges, totals, trends, budget progress, currency formatting, insights, and multi-month mock data are complete. Currency refresh was user-verified; five domain tests plus lint and production build pass.
 
 ### Implement
 
-- [-] Types: `Transaction`, `Category`, `Budget`, `Profile`, `Period`, and `Insight` (transaction, budget, and period complete).
+- [x] Types: `Transaction`, `Category`, `Budget`, `Profile`, `Period`, and `Insight` — defined in the web domain module; extraction to `packages/domain` remains Milestone 0 work.
 - [x] Date-range resolution for day, week, bi-weekly, month, year, and custom ranges.
 - [x] Money aggregation: income, expense, net balance, category totals, savings rate, and prior-period comparison.
 - [x] Budget progress calculations.
-- [ ] Rules-based insight generator with clear evidence and suggested actions.
-- [ ] Currency formatting using the profile currency code.
-- [ ] Representative mock data covering multiple months and categories.
+- [x] Rules-based insight generator with clear evidence and suggested actions — generated cards render; legacy static cards must be removed or reconciled.
+- [x] Currency formatting using the profile currency code — user verified saved currency remains applied after refresh.
+- [x] Representative mock data covering multiple months and categories.
 
 ### Required tests
 
-- [ ] Period boundaries, including month and year changes.
-- [ ] Bi-weekly date calculations.
-- [ ] Income, expense, and balance totals.
-- [ ] Category percentage and budget-progress calculations.
-- [ ] Insight rule thresholds and copy inputs.
-- [ ] Edge cases: no transactions, only income, only expenses, zero income, and custom ranges.
+- [x] Period boundaries, including month and year changes.
+- [x] Bi-weekly date calculations.
+- [x] Income, expense, and balance totals.
+- [x] Category percentage and budget-progress calculations.
+- [x] Insight rule thresholds and copy inputs.
+- [x] Edge cases: no transactions, only income, only expenses, zero income, and custom ranges.
 
 ## Milestone 2 — Web frontend, static-first
 
 Build the visual shell with mock data before connecting real authentication or storage.
 
-**Status:** `[-]`  
-**Completion note:** 2026-08-07 — Dashboard plus all primary navigation views and frontend-only onboarding, registration, and sign-in screens are implemented with shared local data. Date-driven reporting now supports today, weekly, bi-weekly, monthly, yearly, and custom ranges, with previous-period comparison and a seven-day spending trend; lint and production build verified.
+**Status:** `[x]`  
+**Completion note:** 2026-08-07 — All static web screens are complete with responsive layouts, accessible focus indicators, loading, empty, inline form-error, and local-data recovery-error states. Lint and production build verified. Interactive category management, goal progress, and restored preferences remain Milestone 3 work.
 
 ### Screens
 
 1. [x] Welcome / onboarding
 2. [x] Register
 3. [x] Login
-4. [-] Dashboard
+4. [x] Dashboard — static dashboard, flexible period reporting, summaries, charts, shortcuts, loading, and empty state are complete; live budget check-in and goal progress remain Milestone 3 work.
 5. [x] Add income
 6. [x] Add expense
 7. [x] Transactions
-8. [x] Categories and budgets
-9. [x] Where My Money Went
-10. [x] Settings
+8. [x] Categories and budgets — static screen and budget UI are complete; category CRUD remains Milestone 3 work.
+9. [x] Where My Money Went — calculation-backed insight screen is complete; goal persistence/progress remains Milestone 3 work.
+10. [x] Settings — static preferences screen is complete; restore and saved-period behavior remain Milestone 3 work.
 
 ### Dashboard requirements
 
@@ -135,31 +148,108 @@ Build the visual shell with mock data before connecting real authentication or s
 - [x] Responsive layouts for phone, tablet, and desktop widths.
 - [x] Keyboard-accessible controls and visible focus indicators.
 - [x] Semantic form labels and meaningful error messages (transaction and budget dialogs).
-- [ ] Loading, empty, and error states for every primary screen.
+- [x] Loading, empty, and error states for every primary screen — global restore loader, data-view empty states, inline form errors, auth notices, and local-data recovery notice.
 - [x] Light theme only for the MVP, with tokenized colors to enable future themes.
 
 ## Milestone 3 — Interactive frontend and local persistence
 
-**Status:** `[-]`  
-**Completion note:** 2026-08-07 — Transactions and budgets can be created, edited, deleted, filtered, searched, sorted, and retained locally. Clear inline validation is in place; lint and production build are verified. The repository abstraction remains.
+**Status:** `[x]`  
+**Completion note:** 2026-08-07 — Transactions, budgets, categories, preferences, and savings goals are retained locally through a validated repository boundary. Categories and savings goals use accessible in-app forms with inline validation. Dashboard budgets and insights update from the selected period; financial aggregation is kept in the domain module. `npm test` runs seven domain/repository tests and two rendered-shell/UI-wiring checks, and `npm run lint` passes.
 
 ### Implement
 
 - [x] Client-side form validation for transaction and budget forms (clear inline feedback).
 - [x] Transaction create, edit, and delete flows.
-- [x] Category and budget create, edit, and delete flows (budget limits; local browser storage).
+- [x] Category and budget create, edit, and delete flows — budget limits and local category create, rename, and delete flows work. Categories and savings goals use in-app forms with inline feedback. Verified 2026-08-07 with build, lint, and test checks.
 - [x] Filter, search, and sort on transaction history.
-- [-] Local persistence for development (transactions and budgets); repository interface remains.
-- [x] Live dashboard, budget, and insight updates after data changes.
+- [x] Local persistence for development (transactions, budgets, categories, profile, and savings goal) through a validated local repository boundary. Verified 2026-08-07 with lint, domain tests, and production build.
+- [x] Live dashboard, budget, and insight updates after data changes — dashboard budget progress and generated insights use the selected period and current local data. Verified 2026-08-07 with domain and rendered-shell checks.
 
 ### Acceptance checks
 
-- [x] Adding an income or expense immediately updates totals, charts, budgets, and insights.
+- [x] Adding an income or expense immediately updates totals, charts, budget-screen progress, and period-scoped generated insights through shared state and domain calculations. Verified 2026-08-07 with build, lint, and calculation tests.
 - [x] Editing and deleting transactions produce correct recalculations.
-- [x] Refreshing the browser retains local development data.
-- [ ] No calculation logic is embedded directly in screen components.
+- [x] Refreshing the browser retains transactions, budgets, categories, settings, and savings goals through the local repository. Verified 2026-08-07 with repository persistence and malformed-data recovery tests.
+- [x] No financial calculation logic is embedded directly in screen components; totals, percentages, budget summaries, and comparisons are produced by the shared domain module. Verified 2026-08-07 with domain tests and code review.
 
-## Milestone 4 — Mobile frontend
+## Milestone 3.5 — Balance reconciliation
+
+**Status:** `[x]`  
+**Completion note:** 2026-08-09 — Added starting balance, period-scoped expected-versus-actual balance checks, persisted reconciliation records, and a guided untracked-spending adjustment. Transfer records are excluded from income, spending, and reconciliation math. Eight domain/repository tests and lint pass.
+
+### Implement
+
+- [x] Shared reconciliation calculations: expected balance, actual balance, difference, and period-bound checks.
+- [x] Dashboard balance-check card for daily, weekly, bi-weekly, monthly, yearly, and custom periods.
+- [x] Actual-balance form with clear expected, actual, and unaccounted-difference feedback.
+- [x] Guided resolution: add a missed income, add a missed expense, or explicitly record an `Untracked spending` adjustment.
+- [x] Transfers between the user’s own accounts that do not affect spending totals.
+- [x] Local persistence for balance checks and temporary reconciliation state.
+
+### Acceptance checks
+
+- [x] A balance check accurately identifies the difference between recorded and actual money for every supported period.
+- [x] Adding a missed transaction or an untracked-spending adjustment updates the difference and relevant reports.
+- [x] An untracked-spending adjustment is visible and distinguishable from normal categorized spending.
+- [x] Transfers do not change income, spending, or the reconciliation difference.
+- [x] Reconciliation records survive a browser refresh.
+
+## Milestone 3.6 — Insight intelligence
+
+**Status:** `[x]`  
+**Completion note:** 2026-08-09 — Added ranked, explainable live insights for reconciliation gaps, budget pace, category changes, repeated expenses, category concentration, and savings-goal pace. Dashboard surfaces the top three; the insight feed carries its calculation basis. `npm test` (10 domain/repository tests plus 2 rendered-shell tests), production build, and lint pass.
+
+### Implement
+
+- [x] Extend shared insight types with priority, evidence, period, calculation basis, and estimated effect.
+- [x] Rank current insights as `needs attention`, `watch`, or `on track`, returning the three highest-priority items for the dashboard.
+- [x] Detect balance-check discrepancies and make unaccounted money the top insight when relevant.
+- [x] Forecast budget-overrun risk from current spending pace and time remaining in the selected period.
+- [x] Detect meaningful category changes against the equivalent previous period.
+- [x] Identify likely recurring spending using repeated transactions and summarize subscription totals without claiming certainty.
+- [x] Forecast whether the current pace reaches the savings goal, and surface positive progress when supported by the data.
+- [x] Replace generic dashboard insight copy with the prioritized live insight feed; keep the full, period-scoped feed in Where My Money Went.
+
+### Acceptance checks
+
+- [x] Every insight includes a plain-language conclusion, its evidence, a relevant reporting period, and an action when one is warranted.
+- [x] The dashboard shows at most three current, prioritized insights and changes when the selected period or transactions change.
+- [x] Insights do not make recommendations when there is insufficient evidence.
+- [x] Tests cover each insight threshold, priority ordering, no-data behavior, recurring-spend detection, and budget/savings forecasts.
+
+## Milestone 4 — Supabase backend, live web app, and VPS deployment
+
+**Status:** `[-]`  
+**Completion note:** 2026-08-09 — Reprioritized ahead of mobile. A live Supabase project and schema are configured, and the app now has a cloud repository for signed-in users. Profile creation and first-run preference saving were user-verified after adding the scoped profile-insert policy. A production Docker image now builds and returns HTTP 200 locally; the Caddy Compose configuration also validates for `wiw.kineticapp.online`. The GitHub repository now has public Supabase build variables and the target host, port, and WIW-only deployment path secrets. Publishing and live deployment still require the VPS SSH user/key setup, the one-time WIW Compose bootstrap, and the RLS edit/delete check.
+
+### Implement
+
+- [x] Supabase project configuration and migration files — a live project is configured locally with public client settings; all checked-in migrations have been applied and table endpoints were verified on 2026-08-09.
+- [x] Tables for profiles, categories, transactions, budgets, and balance checks — all five live table endpoints were verified on 2026-08-09; transfer, balance-check, and savings-goal schema support is included.
+- [x] Default categories, either seeded or created for a new user.
+- [-] Row-level security policies for every user-owned record — existing policies cover the current tables; add balance-check policies with its migration.
+- [-] Email/password registration, login, logout, password recovery, and session restoration.
+- [x] Supabase repository adapter replacing local persistence in production — signed-in user verified transactions, categories, budgets, balance checks, settings, savings goal, and refresh persistence on 2026-08-09.
+- [ ] Data migration or clear development reset instructions for local mock data.
+- [x] Production web container with public, non-secret Supabase build configuration — image built locally and served HTTP 200 on 2026-08-09.
+- [-] GitHub Actions workflow to build, test, publish to GHCR, and deploy the chosen image tag to the VPS.
+- [-] VPS deployment configuration and rollback/runbook documentation.
+
+### Security checks
+
+- [ ] User A cannot read, modify, or delete User B’s records.
+- [x] Unauthenticated access cannot retrieve financial data — anonymous API requests returned no user rows during live schema verification on 2026-08-09.
+- [ ] Client applications only use the anonymous/public Supabase key.
+- [ ] All database mutations validate ownership through row-level security.
+
+### Deployment acceptance checks
+
+- [x] A production image builds locally and starts with the required public configuration — verified on 2026-08-09 with a temporary Docker container returning HTTP 200.
+- [ ] GitHub Actions publishes the image to GHCR only after tests and lint pass.
+- [ ] The VPS runs the published web image behind HTTPS and persists configuration outside the image.
+- [ ] A documented rollback can return the VPS to the prior image version.
+
+## Milestone 5 — Mobile frontend
 
 **Status:** `[ ]`  
 **Completion note:** —
@@ -174,31 +264,9 @@ Build the visual shell with mock data before connecting real authentication or s
 
 ### Acceptance checks
 
-- [ ] Every MVP workflow works in the Expo app using mock/local data.
+- [ ] Every MVP workflow works in the Expo app using the same live backend.
 - [ ] Values and insights match the web application for the same data.
 - [ ] App is usable on typical small phone widths without horizontal scrolling.
-
-## Milestone 5 — Supabase backend and authentication
-
-**Status:** `[ ]`  
-**Completion note:** —
-
-### Implement
-
-- [x] Supabase project configuration and migration files.
-- [x] Tables for profiles, categories, transactions, and budgets.
-- [x] Default categories, either seeded or created for a new user.
-- [x] Row-level security policies for every user-owned record.
-- [-] Email/password registration, login, logout, password recovery, and session restoration.
-- [ ] Supabase repository adapter replacing local persistence in production.
-- [ ] Data migration or clear development reset instructions for local mock data.
-
-### Security checks
-
-- [ ] User A cannot read, modify, or delete User B’s records.
-- [ ] Unauthenticated access cannot retrieve financial data.
-- [ ] Client applications only use the anonymous/public Supabase key.
-- [ ] All database mutations validate ownership through row-level security.
 
 ## Milestone 6 — Test, polish, and release
 
@@ -207,7 +275,7 @@ Build the visual shell with mock data before connecting real authentication or s
 
 ### Test coverage
 
-- [ ] Domain calculation unit tests.
+- [x] Domain calculation unit tests — five focused tests pass through the standard test command as of 2026-08-07.
 - [ ] Web component and form-flow tests.
 - [ ] Authentication and critical end-to-end flows.
 - [ ] Manual mobile smoke test: registration, add income, add expense, edit transaction, view insights, log out.
@@ -217,7 +285,7 @@ Build the visual shell with mock data before connecting real authentication or s
 - [ ] Verify accessibility and responsive behavior.
 - [ ] Replace mock data with helpful empty states in production.
 - [ ] Add privacy policy and data-deletion guidance before public release.
-- [ ] Deploy web application to Vercel.
+- [ ] Complete post-deployment smoke testing for the VPS-hosted web app.
 - [ ] Produce Expo/EAS preview builds for iOS and Android.
 
 ## Definition of done

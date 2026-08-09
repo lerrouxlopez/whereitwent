@@ -21,9 +21,10 @@ Individuals who want a simple, detailed understanding of their spending without 
 1. A user creates an account or logs in.
 2. They choose a currency, preferred reporting period, and optionally a starting balance.
 3. They record income and expense transactions.
-4. They review totals, category breakdowns, and recent transaction activity.
-5. They open **Where My Money Went** to see spending explanations, period comparisons, and saving opportunities.
-6. They set category budgets and use feedback to adjust their spending.
+4. They compare the expected balance with the money they actually have and resolve any difference.
+5. They review totals, category breakdowns, and recent transaction activity.
+6. They open **Where My Money Went** to see spending explanations, period comparisons, and saving opportunities.
+7. They set category budgets and use feedback to adjust their spending.
 
 ## MVP features
 
@@ -41,6 +42,10 @@ Individuals who want a simple, detailed understanding of their spending without 
 - Amount, date, category, notes, and payment method fields
 - Default categories and custom user categories
 - Transaction history with filtering and search
+- Balance checks for daily, weekly, bi-weekly, monthly, yearly, and custom periods
+- Clear reconciliation of expected versus actual balance, with a guided way to add a missed income or expense
+- An explicit, clearly labelled untracked-spending adjustment when the difference cannot yet be identified
+- Transfers tracked separately so moving money between a user’s own accounts does not count as spending
 
 ### Budget reporting
 
@@ -52,11 +57,17 @@ Individuals who want a simple, detailed understanding of their spending without 
 
 ### Where My Money Went
 
-Rules-based insights written in plain language, for example:
+Explainable, rules-based insights written in plain language. Each insight must state what happened, the supporting amount and period, a practical next step, and an estimated effect where possible. Insights should be prioritized as **needs attention**, **watch**, or **on track** rather than presented as an undifferentiated list.
+
+The insight engine should detect unaccounted money from a balance check, budget forecast risk based on current pace and days remaining, meaningful category changes against an equivalent previous period, recurring spending and subscription totals, category concentration, savings-goal forecast, and positive progress.
+
+Examples:
 
 - "Dining represented 18% of your income this month."
 - "Transport spending is 22% higher than last month."
 - "Reducing delivery purchases by two per week could save approximately ₱X each month."
+
+The dashboard shows the three highest-priority current insights, while **Where My Money Went** provides the full, period-scoped feed and calculation basis.
 
 ### Budgets
 
@@ -96,7 +107,8 @@ Rules-based insights written in plain language, for example:
 | Mobile charts | SVG-based chart package | Native category and trend visualizations |
 | Backend | Supabase | Auth, PostgreSQL database, and API |
 | Authentication | Supabase Auth | Email/password and password recovery |
-| Deployment | Vercel and Expo/EAS | Web hosting and mobile builds |
+| Web deployment | Docker, GitHub Container Registry, GitHub Actions, VPS | Build and publish a container image, then deploy the web app to the VPS |
+| Mobile delivery | Expo/EAS | Preview and release builds after the live web app is established |
 
 ## Data model
 
@@ -122,7 +134,7 @@ Rules-based insights written in plain language, for example:
 - `id`
 - `user_id`
 - `category_id`
-- `type` — `income` or `expense`
+- `type` — `income`, `expense`, or `transfer`
 - `amount`
 - `transaction_date`
 - `payment_method`
@@ -136,6 +148,16 @@ Rules-based insights written in plain language, for example:
 - `category_id`
 - `amount_limit`
 - `period` — weekly, bi-weekly, monthly, or yearly
+- `created_at`, `updated_at`
+
+### balance_checks
+
+- `id`
+- `user_id`
+- `period_start`, `period_end`
+- `expected_balance` — calculated from starting balance, income, expenses, and transfers
+- `actual_balance` — amount the user says they currently have
+- `difference` — amount still unaccounted for
 - `created_at`, `updated_at`
 
 ## Security requirements

@@ -1,0 +1,4 @@
+{$WIW_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy wiw:3000
+}

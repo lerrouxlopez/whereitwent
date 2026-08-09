@@ -25,7 +25,7 @@ create table public.transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   category_id uuid references public.categories(id) on delete set null,
-  type text not null check (type in ('income', 'expense')),
+  type text not null check (type in ('income', 'expense', 'transfer')),
   amount_minor bigint not null check (amount_minor > 0),
   transaction_date date not null default current_date,
   payment_method text,
@@ -98,6 +98,7 @@ alter table public.transactions enable row level security;
 alter table public.budgets enable row level security;
 
 create policy "Users can view their profile" on public.profiles for select using (auth.uid() = id);
+create policy "Users can create their profile" on public.profiles for insert with check (auth.uid() = id);
 create policy "Users can update their profile" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
 
 create policy "Users can manage their categories" on public.categories for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
