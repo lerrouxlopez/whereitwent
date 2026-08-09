@@ -75,7 +75,7 @@ export function transactionsInRange(transactions: Transaction[], range: DateRang
 }
 
 export function previousRange(range: DateRange): DateRange {
-  const days = Math.max(1, Math.round((range.end.getTime() - range.start.getTime()) / 86400000) + 1);
+  const days = Math.max(1, Math.floor((range.end.getTime() - range.start.getTime()) / 86400000) + 1);
   const end = new Date(range.start); end.setDate(end.getDate() - 1); end.setHours(23, 59, 59);
   const start = new Date(end); start.setDate(start.getDate() - days + 1); start.setHours(0, 0, 0);
   return { start, end };

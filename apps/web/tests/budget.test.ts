@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { balanceExpectationFor, budgetProgressFor, budgetSummaryFor, insightsFor, percentageOf, previousRange, reconciliationFor, reportRange, spendingChange, totalsFor, type Transaction } from "../app/lib/budget.ts";
+import { balanceExpectationFor, budgetProgressFor, budgetSummaryFor, insightsFor, isoDate, percentageOf, previousRange, reconciliationFor, reportRange, spendingChange, totalsFor, type Transaction } from "../app/lib/budget.ts";
 
 const income: Transaction = { id: 1, name: "Pay", category: "Income", amount: 10000, date: "2026-08-01", type: "income", icon: "*" };
 const food: Transaction = { id: 2, name: "Food", category: "Food", amount: 2500, date: "2026-08-02", type: "expense", icon: "*" };
 
 test("resolves custom and prior ranges", () => {
   const range = reportRange("custom", "2026-01-01", "2026-01-14");
-  assert.equal(previousRange(range).start.toISOString().slice(0, 10), "2025-12-16");
+  assert.equal(isoDate(previousRange(range).start), "2025-12-18");
 });
 test("calculates totals and budget progress", () => {
   assert.deepEqual(totalsFor([income, food]), { income: 10000, spending: 2500, balance: 7500, savingsRate: 75 });

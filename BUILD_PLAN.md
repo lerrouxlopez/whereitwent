@@ -12,7 +12,7 @@
 | 3. Interactive frontend and local persistence | `[x]` | Codex | 2026-08-07 | Local flows, persistence, live reporting, and domain separation are complete and verified by build, lint, domain, repository, and rendered-shell checks. |
 | 3.5 Balance reconciliation | `[x]` | Codex | 2026-08-09 | Expected-versus-actual balance checks, persisted records, guided adjustments, and transfer-safe calculations are complete. |
 | 3.6 Insight intelligence | `[x]` | Codex | 2026-08-09 | Explainable, prioritized live insight feeds and threshold coverage are complete and verified. |
-| 4. Supabase backend, live web app, and deployment | `[-]` | Codex | 2026-08-09 | Local production container and VPS Compose configuration are verified. Publishing and live deployment await GitHub CLI authentication, GitHub Action settings, DNS, and VPS SSH access. |
+| 4. Supabase backend, live web app, and deployment | `[-]` | Codex | 2026-08-10 | Local production container and VPS Compose configuration are verified. GitHub Actions deployment credentials are configured; CI date handling is verified in local and UTC timezones. Live VPS deployment remains to be verified. |
 | 5. Mobile frontend | `[ ]` | Unassigned | — | Starts after the live web app is operating successfully. |
 | 6. Test, polish, and release | `[ ]` | Unassigned | — | — |
 
@@ -220,7 +220,7 @@ Build the visual shell with mock data before connecting real authentication or s
 ## Milestone 4 — Supabase backend, live web app, and VPS deployment
 
 **Status:** `[-]`  
-**Completion note:** 2026-08-09 — Reprioritized ahead of mobile. A live Supabase project and schema are configured, and the app now has a cloud repository for signed-in users. Profile creation and first-run preference saving were user-verified after adding the scoped profile-insert policy. A production Docker image now builds and returns HTTP 200 locally; the Caddy Compose configuration also validates for `wiw.kineticapp.online`. The GitHub repository now has public Supabase build variables and the target host, port, and WIW-only deployment path secrets. Publishing and live deployment still require the VPS SSH user/key setup, the one-time WIW Compose bootstrap, and the RLS edit/delete check.
+**Completion note:** 2026-08-10 — Reprioritized ahead of mobile. A live Supabase project and schema are configured, and the app now has a cloud repository for signed-in users. Profile creation and first-run preference saving were user-verified after adding the scoped profile-insert policy. A production Docker image now builds and returns HTTP 200 locally; the Caddy Compose configuration also validates for `wiw.kineticapp.online`. GitHub has the public build variables and WIW deployment credentials. Corrected the prior-range calculation and verified `npm test` in both local and UTC timezones plus lint. Live deployment and its HTTPS smoke check remain.
 
 ### Implement
 
