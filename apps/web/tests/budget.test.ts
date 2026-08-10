@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { balanceExpectationFor, budgetProgressFor, budgetSummaryFor, insightsFor, isoDate, percentageOf, previousRange, reconciliationFor, reportRange, spendingChange, totalsFor, type Transaction } from "../app/lib/budget.ts";
+import { accountBalancesFor, balanceExpectationFor, budgetProgressFor, budgetSummaryFor, insightsFor, isoDate, percentageOf, previousRange, reconciliationFor, reportRange, spendingChange, totalsFor, type Transaction } from "../app/lib/budget.ts";
 
 const income: Transaction = { id: 1, name: "Pay", category: "Income", amount: 10000, date: "2026-08-01", type: "income", icon: "*" };
 const food: Transaction = { id: 2, name: "Food", category: "Food", amount: 2500, date: "2026-08-02", type: "expense", icon: "*" };
@@ -24,6 +24,13 @@ test("keeps planned expenses out of actual totals", () => {
   const planned = { ...food, id: 99, amount: 4000, status: "planned" as const };
   assert.deepEqual(totalsFor([income, food, planned]), { income: 10000, spending: 2500, balance: 7500, savingsRate: 75 });
   assert.deepEqual(budgetProgressFor([{ id: 1, category: "Food", limit: 3000, icon: "*", tone: "blue" }], [["Food", 2500]]), [{ id: 1, category: "Food", limit: 3000, icon: "*", tone: "blue", spent: 2500, percent: 83, remaining: 500 }]);
+});
+test("treats a credit-card payment as a transfer, not new spending", () => {
+  const accounts = [{ id: 1, name: "Bank", kind: "bank" as const, openingBalance: 10000 }, { id: 2, name: "Card", kind: "credit_card" as const, openingBalance: 3000, creditLimit: 20000 }];
+  const purchase = { ...food, id: 101, amount: 2000, accountId: 2 };
+  const payment = { ...food, id: 102, name: "Pay card", amount: 5000, type: "transfer" as const, fromAccountId: 1, toAccountId: 2 };
+  assert.deepEqual(totalsFor([purchase, payment]), { income: 0, spending: 2000, balance: -2000, savingsRate: 0 });
+  assert.deepEqual(accountBalancesFor(accounts, [purchase, payment]).map(({ name, balance, amountOwed, availableCredit }) => ({ name, balance, amountOwed, availableCredit })), [{ name: "Bank", balance: 5000, amountOwed: 0, availableCredit: 0 }, { name: "Card", balance: 0, amountOwed: 0, availableCredit: 20000 }]);
 });
 test("handles no spending and produces evidence-based insight", () => {
   assert.equal(insightsFor([income])[0].title, "No spending recorded");

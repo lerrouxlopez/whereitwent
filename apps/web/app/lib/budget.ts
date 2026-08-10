@@ -6,8 +6,13 @@ export type Transaction = {
   date: string;
   type: "income" | "expense" | "transfer";
   status?: "posted" | "planned";
+  accountId?: number;
+  fromAccountId?: number;
+  toAccountId?: number;
   icon: string;
 };
+export type Account = { id: number; name: string; kind: "cash" | "bank" | "credit_card"; openingBalance: number; creditLimit?: number };
+export type AccountBalance = Account & { balance: number; amountOwed: number; availableCredit: number };
 export type BalanceCheck = { id: number; periodStart: string; periodEnd: string; actualBalance: number };
 
 export type Budget = {
@@ -87,6 +92,30 @@ export function totalsFor(transactions: Transaction[]) {
   const income = posted.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0);
   const spending = posted.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0);
   return { income, spending, balance: income - spending, savingsRate: income ? Math.round(((income - spending) / income) * 100) : 0 };
+}
+
+export function accountBalancesFor(accounts: Account[], transactions: Transaction[]): AccountBalance[] {
+  const balances = new Map(accounts.map((account) => [account.id, account.openingBalance]));
+  const posted = transactions.filter((item) => item.status !== "planned");
+  const account = (id?: number) => id === undefined ? undefined : accounts.find((item) => item.id === id);
+  for (const item of posted) {
+    if (item.type === "transfer") {
+      const from = account(item.fromAccountId);
+      const to = account(item.toAccountId);
+      if (from) balances.set(from.id, (balances.get(from.id) || 0) + (from.kind === "credit_card" ? item.amount : -item.amount));
+      if (to) balances.set(to.id, (balances.get(to.id) || 0) + (to.kind === "credit_card" ? -item.amount : item.amount));
+      continue;
+    }
+    const selected = account(item.accountId);
+    if (!selected) continue;
+    const direction = item.type === "income" ? 1 : -1;
+    balances.set(selected.id, (balances.get(selected.id) || 0) + (selected.kind === "credit_card" && item.type === "expense" ? item.amount : direction * item.amount));
+  }
+  return accounts.map((item) => {
+    const raw = balances.get(item.id) || 0;
+    const amountOwed = item.kind === "credit_card" ? Math.max(raw, 0) : 0;
+    return { ...item, balance: item.kind === "credit_card" ? 0 : raw, amountOwed, availableCredit: item.kind === "credit_card" ? Math.max((item.creditLimit || 0) - amountOwed, 0) : 0 };
+  });
 }
 
 export function balanceExpectationFor(startingBalance: number, transactions: Transaction[], range: DateRange) {

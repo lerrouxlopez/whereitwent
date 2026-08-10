@@ -1,4 +1,4 @@
-import type { BalanceCheck, Budget, Period, Transaction } from "./budget";
+import type { Account, BalanceCheck, Budget, Period, Transaction } from "./budget";
 import { readLocal, writeLocal } from "./local-repository.ts";
 
 export type StoredProfile = {
@@ -15,6 +15,7 @@ const keys = {
   profile: "wiw:profile:v1",
   savingsGoal: "wiw:savings-goal:v1",
   balanceChecks: "wiw:balance-checks:v1",
+  accounts: "wiw:accounts:v1",
 } as const;
 
 export class LocalBudgetRepository {
@@ -69,6 +70,26 @@ export class LocalBudgetRepository {
   saveBalanceChecks(checks: BalanceCheck[]) {
     writeLocal(keys.balanceChecks, checks);
   }
+
+  loadAccounts(): Account[] {
+    return readLocal<unknown[]>(keys.accounts, []).filter(isAccount);
+  }
+
+  saveAccounts(accounts: Account[]) {
+    writeLocal(keys.accounts, accounts);
+  }
+}
+
+function isAccount(value: unknown): value is Account {
+  if (!value || typeof value !== "object") return false;
+  const account = value as Partial<Account>;
+  return typeof account.id === "number"
+    && typeof account.name === "string"
+    && Boolean(account.name.trim())
+    && (account.kind === "cash" || account.kind === "bank" || account.kind === "credit_card")
+    && Number.isFinite(account.openingBalance)
+    && account.openingBalance >= 0
+    && (account.creditLimit === undefined || (Number.isFinite(account.creditLimit) && account.creditLimit >= 0));
 }
 
 function isTransaction(value: unknown): value is Transaction {
