@@ -12,7 +12,7 @@ export type CloudSnapshot = {
 
 type CategoryRow = { id: string; name: string; icon: string; kind: "income" | "expense" };
 type RelatedCategory = { name?: string; icon?: string } | { name?: string; icon?: string }[] | null;
-type TransactionRow = { id: string; type: Transaction["type"]; amount_minor: number; transaction_date: string; notes: string | null; categories: RelatedCategory };
+type TransactionRow = { id: string; type: Transaction["type"]; status: "posted" | "planned" | null; amount_minor: number; transaction_date: string; notes: string | null; categories: RelatedCategory };
 type BudgetRow = { id: string; amount_limit_minor: number; categories: RelatedCategory };
 type BalanceCheckRow = { id: string; period_start: string; period_end: string; actual_balance_minor: number };
 
@@ -56,7 +56,7 @@ export const supabaseBudgetRepository = {
     const [profileResult, categoriesResult, transactionsResult, budgetsResult, checksResult] = await Promise.all([
       supabase.from("profiles").select("display_name,currency_code,preferred_period,starting_balance_minor,savings_goal_minor").eq("id", userId).maybeSingle(),
       supabase.from("categories").select("id,name,icon,kind").eq("user_id", userId).eq("kind", "expense"),
-      supabase.from("transactions").select("id,type,amount_minor,transaction_date,notes,categories(name,icon)").eq("user_id", userId).order("transaction_date", { ascending: false }),
+      supabase.from("transactions").select("id,type,status,amount_minor,transaction_date,notes,categories(name,icon)").eq("user_id", userId).order("transaction_date", { ascending: false }),
       supabase.from("budgets").select("id,amount_limit_minor,categories(name,icon)").eq("user_id", userId),
       supabase.from("balance_checks").select("id,period_start,period_end,actual_balance_minor").eq("user_id", userId),
     ]);
@@ -73,7 +73,7 @@ export const supabaseBudgetRepository = {
       categories: ((categoriesResult.data || []) as CategoryRow[]).map((row) => row.name),
       transactions: ((transactionsResult.data || []) as TransactionRow[]).map((row, index) => {
         const category = relatedCategory(row.categories);
-        return { id: index + 1, name: row.notes || "Untitled transaction", category: category?.name || (row.type === "income" ? "Income" : row.type === "transfer" ? "Transfer" : "Other"), amount: moneyFromMinor(row.amount_minor), date: row.transaction_date, type: row.type, icon: category?.icon || (row.type === "income" ? "✦" : "•") };
+        return { id: index + 1, name: row.notes || "Untitled transaction", category: category?.name || (row.type === "income" ? "Income" : row.type === "transfer" ? "Transfer" : "Other"), amount: moneyFromMinor(row.amount_minor), date: row.transaction_date, type: row.type, status: row.status || "posted", icon: category?.icon || (row.type === "income" ? "✦" : "•") };
       }),
       budgets: ((budgetsResult.data || []) as BudgetRow[]).flatMap((row, index) => {
         const category = relatedCategory(row.categories);
@@ -95,7 +95,7 @@ export const supabaseBudgetRepository = {
     const { error: removeTransactionsError } = await supabase.from("transactions").delete().eq("user_id", userId);
     if (removeTransactionsError) throw removeTransactionsError;
     if (snapshot.transactions.length) {
-      const { error } = await supabase.from("transactions").insert(snapshot.transactions.map((item) => ({ user_id: userId, category_id: categoryIds.get(item.category.toLowerCase()) || null, type: item.type, amount_minor: moneyToMinor(item.amount), transaction_date: item.date, notes: item.name })));
+      const { error } = await supabase.from("transactions").insert(snapshot.transactions.map((item) => ({ user_id: userId, category_id: categoryIds.get(item.category.toLowerCase()) || null, type: item.type, status: item.status || "posted", amount_minor: moneyToMinor(item.amount), transaction_date: item.date, notes: item.name })));
       if (error) throw error;
     }
 

@@ -5,6 +5,7 @@ export type Transaction = {
   amount: number;
   date: string;
   type: "income" | "expense" | "transfer";
+  status?: "posted" | "planned";
   icon: string;
 };
 export type BalanceCheck = { id: number; periodStart: string; periodEnd: string; actualBalance: number };
@@ -82,8 +83,9 @@ export function previousRange(range: DateRange): DateRange {
 }
 
 export function totalsFor(transactions: Transaction[]) {
-  const income = transactions.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0);
-  const spending = transactions.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0);
+  const posted = transactions.filter((item) => item.status !== "planned");
+  const income = posted.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0);
+  const spending = posted.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0);
   return { income, spending, balance: income - spending, savingsRate: income ? Math.round(((income - spending) / income) * 100) : 0 };
 }
 
@@ -101,7 +103,7 @@ export function reconciliationFor(actualBalance: number, expectation: { openingB
 
 export function spendingByCategoryFor(transactions: Transaction[]): [string, number][] {
   const totals = new Map<string, number>();
-  transactions.filter((item) => item.type === "expense").forEach((item) => totals.set(item.category, (totals.get(item.category) || 0) + item.amount));
+  transactions.filter((item) => item.type === "expense" && item.status !== "planned").forEach((item) => totals.set(item.category, (totals.get(item.category) || 0) + item.amount));
   return [...totals.entries()].sort((left, right) => right[1] - left[1]);
 }
 

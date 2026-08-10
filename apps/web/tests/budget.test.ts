@@ -20,6 +20,11 @@ test("calculates totals and budget progress", () => {
   assert.equal(spendingChange(120, 100), 20);
   assert.equal(spendingChange(120, 0), null);
 });
+test("keeps planned expenses out of actual totals", () => {
+  const planned = { ...food, id: 99, amount: 4000, status: "planned" as const };
+  assert.deepEqual(totalsFor([income, food, planned]), { income: 10000, spending: 2500, balance: 7500, savingsRate: 75 });
+  assert.deepEqual(budgetProgressFor([{ id: 1, category: "Food", limit: 3000, icon: "*", tone: "blue" }], [["Food", 2500]]), [{ id: 1, category: "Food", limit: 3000, icon: "*", tone: "blue", spent: 2500, percent: 83, remaining: 500 }]);
+});
 test("handles no spending and produces evidence-based insight", () => {
   assert.equal(insightsFor([income])[0].title, "No spending recorded");
   assert.match(insightsFor([income, food])[0].title, /Food/);

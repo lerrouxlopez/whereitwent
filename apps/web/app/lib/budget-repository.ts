@@ -80,6 +80,7 @@ function isTransaction(value: unknown): value is Transaction {
     && Number.isFinite(transaction.amount)
     && typeof transaction.date === "string"
     && (transaction.type === "income" || transaction.type === "expense" || transaction.type === "transfer")
+    && (transaction.status === undefined || transaction.status === "posted" || transaction.status === "planned")
     && typeof transaction.icon === "string";
 }
 

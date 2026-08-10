@@ -10,6 +10,7 @@ import { localBudgetRepository } from "./lib/budget-repository";
 type Transaction = budgetDomain.Transaction;
 type Budget = budgetDomain.Budget;
 type BalanceCheck = budgetDomain.BalanceCheck;
+type EntryMode = Transaction["type"] | "planned";
 
 const initialTransactions: Transaction[] = [
   { id: 1, name: "Monthly salary", category: "Income", amount: 82000, date: "2026-08-01", type: "income", icon: "✦" },
@@ -79,7 +80,7 @@ export default function Home() {
   const [customStart, setCustomStart] = useState("2026-08-01");
   const [customEnd, setCustomEnd] = useState("2026-08-07");
   const [activeTab, setActiveTab] = useState("Overview");
-  const [modalType, setModalType] = useState<"income" | "expense" | "transfer" | null>(null);
+  const [modalType, setModalType] = useState<EntryMode | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
@@ -196,6 +197,8 @@ export default function Home() {
   const totals = useMemo(() => budgetDomain.totalsFor(periodTransactions), [periodTransactions]);
   const spendingByCategory = useMemo(() => budgetDomain.spendingByCategoryFor(periodTransactions), [periodTransactions]);
   const budgetProgress = useMemo(() => budgetDomain.budgetProgressFor(budgets, spendingByCategory), [budgets, spendingByCategory]);
+  const plannedTransactions = useMemo(() => periodTransactions.filter((item) => item.status === "planned"), [periodTransactions]);
+  const plannedTotal = useMemo(() => plannedTransactions.reduce((sum, item) => sum + item.amount, 0), [plannedTransactions]);
 
   const previousSpending = budgetDomain.totalsFor(previousPeriodTransactions).spending;
   const spendingComparison = budgetDomain.spendingChange(totals.spending, previousSpending);
@@ -227,11 +230,13 @@ export default function Home() {
     const data = new FormData(event.currentTarget);
     const amount = Number(data.get("amount"));
     const description = String(data.get("description") || "New transaction");
+    const planned = modalType === "planned";
+    const transactionType: Transaction["type"] = modalType === "planned" ? "expense" : modalType!;
     const category = modalType === "income" ? "Income" : modalType === "transfer" ? "Transfer" : String(data.get("category"));
     if (!amount || amount < 1 || !modalType) return;
-    setTransactions((items) => [{ id: Date.now(), name: description, category, amount, date: String(data.get("date") || new Date().toISOString().slice(0, 10)), type: modalType, icon: modalType === "income" ? "✦" : "●" }, ...items]);
+    setTransactions((items) => [{ id: Date.now(), name: description, category, amount, date: String(data.get("date") || new Date().toISOString().slice(0, 10)), type: transactionType, status: planned ? "planned" : "posted", icon: modalType === "income" ? "✦" : "●" }, ...items]);
     setModalType(null);
-    setToast(`${modalType === "income" ? "Income" : "Expense"} added successfully`);
+    setToast(planned ? "Planned expense added" : `${modalType === "income" ? "Income" : "Expense"} added successfully`);
     window.setTimeout(() => setToast(""), 2800);
   }
 
@@ -239,6 +244,12 @@ export default function Home() {
     if (!window.confirm("Delete this transaction? This cannot be undone in the current prototype.")) return;
     setTransactions((items) => items.filter((item) => item.id !== id));
     setToast("Transaction deleted");
+    window.setTimeout(() => setToast(""), 2800);
+  }
+
+  function markPlannedExpensePaid(id: number) {
+    setTransactions((items) => items.map((item) => item.id === id ? { ...item, status: "posted" } : item));
+    setToast("Planned expense marked as paid");
     window.setTimeout(() => setToast(""), 2800);
   }
 
@@ -348,13 +359,14 @@ export default function Home() {
         {activeTab === "Overview" ? <>
           <section className="hero-row">
             <div><p className="intro">Here is how your money is looking.</p><div className="period-toggle" aria-label="Budget period">{periodOptions.map(([value, label]) => <button key={value} className={period === value ? "selected" : ""} onClick={() => setPeriod(value)}>{label}</button>)}</div>{period === "custom" && <div className="custom-range"><label>From<input type="date" value={customStart} max={customEnd} onChange={(event) => setCustomStart(event.target.value)} /></label><label>To<input type="date" value={customEnd} min={customStart} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</div>
-            <div className="add-actions"><button className="secondary-button" onClick={() => setModalType("income")}><span>＋</span>Add income</button><button className="primary-button" onClick={() => setModalType("expense")}><span>＋</span>Add expense</button></div>
+            <div className="add-actions"><button className="secondary-button" onClick={() => setModalType("income")}><span>＋</span>Add income</button><button className="secondary-button" onClick={() => setModalType("planned")}>＋ Plan expense</button><button className="primary-button" onClick={() => setModalType("expense")}><span>＋</span>Add expense</button></div>
           </section>
 
           <section className="summary-grid" aria-label="Financial summary">
             <article className="balance-card"><div className="card-kicker">AVAILABLE TO SPEND <span className="trend positive">↑ 12%</span></div><div className="balance-value">{peso(totals.balance)}</div><p>After your income and spending</p><div className="progress-track"><span style={{ width: `${Math.min(totals.savingsRate, 100)}%` }} /></div><div className="progress-label"><span>{totals.savingsRate}% saved</span><span>Goal: 30%</span></div></article>
             <article className="stat-card"><div className="stat-icon income-icon">↗</div><p>Income</p><strong>{peso(totals.income)}</strong><small className="positive">+5.2% <em>vs. last month</em></small></article>
             <article className="stat-card"><div className="stat-icon expense-icon">↘</div><p>Spent</p><strong>{peso(totals.spending)}</strong><small className={spendingComparison !== null && spendingComparison <= 0 ? "positive" : "negative"}>{spendingComparison === null ? "No prior-period data" : `${spendingComparison > 0 ? "+" : ""}${spendingComparison}%`} <em>{spendingComparison === null ? "to compare" : "vs. previous period"}</em></small></article>
+            <article className="stat-card"><div className="stat-icon">◌</div><p>Planned</p><strong>{peso(plannedTotal)}</strong><small>{plannedTransactions.length} upcoming · {peso(totals.balance - plannedTotal)} after plans</small></article>
           </section>
 
           <section className="panel balance-check-panel"><div className="panel-heading"><div><p className="eyebrow">BALANCE CHECK</p><h2>{reconciliation ? (reconciliation.difference === 0 ? "Everything matches" : "Money to reconcile") : "Check your real balance"}</h2></div><button className="secondary-button" onClick={() => setBalanceCheckDialogOpen(true)}>{reconciliation ? "Update" : "Check balance"}</button></div>{reconciliation ? <div><p className={reconciliation.difference === 0 ? "positive" : "negative"}>{reconciliation.difference === 0 ? "Your recorded and actual balances match." : `${peso(Math.abs(reconciliation.difference))} ${reconciliation.difference < 0 ? "is unaccounted for" : "more than expected"}.`}</p><p className="balance-check-copy">Expected {peso(reconciliation.expectedBalance)} · Actual {peso(reconciliation.actualBalance)}</p>{reconciliation.difference < 0 && <div className="add-actions"><button className="quiet-button" onClick={addUntrackedSpending}>Record untracked spending</button><button className="quiet-button" onClick={() => setModalType("expense")}>Add missed expense</button></div>}{reconciliation.difference > 0 && <button className="quiet-button" onClick={() => setModalType("income")}>Add missed income</button>}</div> : <p className="balance-check-copy">Tell WIW how much money you actually have. We will compare it with {peso(balanceExpectation.expectedBalance)} expected from your recorded money moves.</p>}</section>
@@ -367,13 +379,13 @@ export default function Home() {
           <section className="panel trend-panel"><div className="panel-heading"><div><h2>Spending pulse</h2><p>Daily expenses ending {displayDate(budgetDomain.isoDate(activeRange.end))}</p></div><strong>{peso(totals.spending)} <small>in selected range</small></strong></div><div className="trend-bars" aria-label="Seven day expense trend">{trendPoints.map((point, index) => <div className="trend-bar" key={`${point.label}-${index}`}><span className="trend-value">{point.amount ? peso(point.amount) : "—"}</span><i style={{ height: `${point.height}%` }} /><small>{point.label}</small></div>)}</div></section>
 
           <section className="bottom-grid">
-            <article className="panel transactions-panel"><div className="panel-heading"><div><h2>Recent activity</h2><p>Your latest money moves</p></div><button className="quiet-button" onClick={() => setActiveTab("Transactions")}>See all <span>→</span></button></div><div className="transaction-list">{periodTransactions.length ? periodTransactions.slice(0, 5).map((item) => <div className="transaction" key={item.id}><span className={`transaction-icon ${item.type}`}>{item.icon}</span><div><strong>{item.name}</strong><small>{item.category} · {displayDate(item.date)}</small></div><b className={item.type}>{item.type === "income" ? "+" : "−"}{peso(item.amount)}</b></div>) : <div className="dashboard-empty"><span>◎</span><p>No activity in this period yet.</p><button className="text-link" onClick={() => setModalType("expense")}>Add an expense <span>→</span></button></div>}</div></article>
+            <article className="panel transactions-panel"><div className="panel-heading"><div><h2>Recent activity</h2><p>Your latest money moves</p></div><button className="quiet-button" onClick={() => setActiveTab("Transactions")}>See all <span>→</span></button></div><div className="transaction-list">{periodTransactions.length ? periodTransactions.slice(0, 5).map((item) => <div className="transaction" key={item.id}><span className={`transaction-icon ${item.type}`}>{item.icon}</span><div><strong>{item.name}</strong><small>{item.status === "planned" ? "Planned · " : ""}{item.category} · {displayDate(item.date)}</small></div><b className={item.status === "planned" ? "planned" : item.type}>{item.type === "income" ? "+" : "−"}{peso(item.amount)}</b>{item.status === "planned" && <button className="quiet-button" onClick={() => markPlannedExpensePaid(item.id)}>Mark paid</button>}</div>) : <div className="dashboard-empty"><span>◎</span><p>No activity in this period yet.</p><button className="text-link" onClick={() => setModalType("expense")}>Add an expense <span>→</span></button></div>}</div></article>
 <article className="panel budget-panel"><div className="panel-heading"><div><h2>Budget check-in</h2><p>Your monthly limits</p></div><button className="quiet-button" onClick={() => setActiveTab("Budgets")}>Manage <span>→</span></button></div>{budgetProgress.length ? budgetProgress.slice(0, 2).map((budget) => <div key={budget.id}><div className="budget-row"><div><span className={`budget-icon ${budget.tone === "blue" ? "blue" : ""}`}>{budget.icon}</span><p><strong>{budget.category}</strong><small>{peso(budget.spent)} of {peso(budget.limit)}</small></p></div><span className="budget-percent">{budget.percent}%</span></div><div className={`budget-bar ${budget.tone === "blue" ? "blue" : ""}`}><i style={{ width: `${Math.min(budget.percent, 100)}%` }} /></div></div>) : <div className="dashboard-empty"><p>No budgets yet.</p><button className="text-link" onClick={() => setActiveTab("Budgets")}>Create a budget <span>→</span></button></div>}</article>
           </section>
         </> : activeTab === "Budgets" ? <BudgetView budgets={budgetProgress} onCreate={() => { setEditingBudget(null); setBudgetModalOpen(true); }} onCreateCategory={() => setCategoryDialog({ mode: "create" })} onRenameCategory={(category) => setCategoryDialog({ mode: "rename", category })} onDeleteCategory={deleteCategory} onEdit={(budget) => { setEditingBudget(budget); setBudgetModalOpen(true); }} onDelete={deleteBudget} /> : <SecondaryView activeTab={activeTab} transactions={transactions} insightTransactions={periodTransactions} previousInsightTransactions={previousPeriodTransactions} insightRange={activeRange} budgets={budgets} reconciliation={reconciliation} totals={totals} spendingByCategory={spendingByCategory} profileName={profileName} currencyCode={currencyCode} defaultPeriod={period} startingBalance={startingBalance} savingsGoal={savingsGoal} onSaveSavingsGoal={(amount) => { setSavingsGoal(amount); if (!isSupabaseConfigured) localBudgetRepository.saveSavingsGoal(amount); }} onSaveSettings={(name, currency, nextPeriod, nextStartingBalance) => { setProfileName(name); setCurrencyCode(currency); if (nextPeriod) setPeriod(nextPeriod); if (typeof nextStartingBalance === "number") setStartingBalance(nextStartingBalance); }} onReturn={() => setActiveTab("Overview")} onAddExpense={() => setModalType("expense")} onAddIncome={() => setModalType("income")} onSignOut={() => void signOut()} onDeleteTransaction={deleteTransaction} onEditTransaction={setEditingTransaction} />}
       </section>
 
-      {(modalType || editingTransaction) && <ValidatedTransactionModal type={editingTransaction?.type || modalType!} transaction={editingTransaction || undefined} onClose={() => { setModalType(null); setEditingTransaction(null); }} onSubmit={editingTransaction ? updateTransaction : addTransaction} />}
+      {(modalType || editingTransaction) && <ValidatedTransactionModal type={editingTransaction?.status === "planned" ? "planned" : editingTransaction?.type || modalType!} transaction={editingTransaction || undefined} onClose={() => { setModalType(null); setEditingTransaction(null); }} onSubmit={editingTransaction ? updateTransaction : addTransaction} />}
       {budgetModalOpen && <ValidatedBudgetModal budget={editingBudget || undefined} onClose={() => { setBudgetModalOpen(false); setEditingBudget(null); }} onSubmit={saveBudget} />}
       {balanceCheckDialogOpen && <BalanceCheckModal expectedBalance={balanceExpectation.expectedBalance} actualBalance={savedBalanceCheck?.actualBalance} onClose={() => setBalanceCheckDialogOpen(false)} onSubmit={saveBalanceCheck} />}
       {categoryDialog && <CategoryModal category={categoryDialog.category} categories={categories} onClose={() => setCategoryDialog(null)} onSubmit={saveCategory} />}
@@ -499,7 +511,7 @@ function BalanceCheckModal({ expectedBalance, actualBalance, onClose, onSubmit }
   return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Balance check"><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close balance check dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">BALANCE CHECK</p><h2>Compare your real balance</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><p className="modal-help">WIW expects {peso(expectedBalance)} based on your starting balance and recorded money moves.</p><label>Actual money available<input name="actualBalance" type="number" min="0" step="1" defaultValue={actualBalance} placeholder="0" onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">Save balance check</button></form></div>;
 }
 
-function ValidatedTransactionModal({ type, transaction, onClose, onSubmit }: { type: Transaction["type"]; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function ValidatedTransactionModal({ type, transaction, onClose, onSubmit }: { type: EntryMode; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const editing = Boolean(transaction);
   const [error, setError] = useState("");
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -514,7 +526,8 @@ function ValidatedTransactionModal({ type, transaction, onClose, onSubmit }: { t
     setError("");
     onSubmit(event);
   }
-  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${editing ? "Edit" : "Add"} ${type}`}><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close transaction dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">{editing ? "EDIT" : "NEW"} {type.toUpperCase()}</p><h2>{editing ? "Edit" : "Add"} {type}</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><label>Description<input name="description" defaultValue={transaction?.name} placeholder={type === "income" ? "e.g. Freelance project" : "e.g. Grocery run"} onChange={() => setError("")} required /></label><label>Amount<input name="amount" type="number" defaultValue={transaction?.amount} min="1" step="1" placeholder="0" onChange={() => setError("")} required /></label>{type === "expense" && <label>Category<select name="category" defaultValue={transaction?.category}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>}<label>Date<input name="date" type="date" defaultValue={transaction?.date || "2026-08-07"} onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">{editing ? "Save changes" : `Add ${type}`}</button></form></div>;
+  const planned = type === "planned";
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${editing ? "Edit" : "Add"} ${type}`}><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close transaction dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">{editing ? "EDIT" : "NEW"} {planned ? "PLANNED EXPENSE" : type.toUpperCase()}</p><h2>{editing ? "Edit" : "Add"} {planned ? "planned expense" : type}</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div>{planned && <p className="modal-help">This stays out of actual spending and budgets until you mark it paid.</p>}<label>Description<input name="description" defaultValue={transaction?.name} placeholder={type === "income" ? "e.g. Freelance project" : "e.g. Grocery run"} onChange={() => setError("")} required /></label><label>Amount<input name="amount" type="number" defaultValue={transaction?.amount} min="1" step="1" placeholder="0" onChange={() => setError("")} required /></label>{(type === "expense" || planned) && <label>Category<select name="category" defaultValue={transaction?.category}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>}<label>{planned ? "Expected date" : "Date"}<input name="date" type="date" defaultValue={transaction?.date || "2026-08-07"} onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">{editing ? "Save changes" : planned ? "Add planned expense" : `Add ${type}`}</button></form></div>;
 }
 
 function ValidatedBudgetModal({ budget, onClose, onSubmit }: { budget?: Budget; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {

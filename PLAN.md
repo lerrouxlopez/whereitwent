@@ -46,6 +46,7 @@ Individuals who want a simple, detailed understanding of their spending without 
 - Clear reconciliation of expected versus actual balance, with a guided way to add a missed income or expense
 - An explicit, clearly labelled untracked-spending adjustment when the difference cannot yet be identified
 - Transfers tracked separately so moving money between a user’s own accounts does not count as spending
+- Planned expenses with an expected date, forecast total, and mark-paid conversion; planned items do not affect actual spending, budgets, or reconciliation until paid
 
 ### Budget reporting
 

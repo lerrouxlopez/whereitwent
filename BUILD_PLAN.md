@@ -12,6 +12,7 @@
 | 3. Interactive frontend and local persistence | `[x]` | Codex | 2026-08-07 | Local flows, persistence, live reporting, and domain separation are complete and verified by build, lint, domain, repository, and rendered-shell checks. |
 | 3.5 Balance reconciliation | `[x]` | Codex | 2026-08-09 | Expected-versus-actual balance checks, persisted records, guided adjustments, and transfer-safe calculations are complete. |
 | 3.6 Insight intelligence | `[x]` | Codex | 2026-08-09 | Explainable, prioritized live insight feeds and threshold coverage are complete and verified. |
+| 3.7 Planned expenses and cash forecast | `[-]` | Codex | 2026-08-10 | Adding forecast-only planned expenses with an expected date and mark-paid conversion. |
 | 4. Supabase backend, live web app, and deployment | `[-]` | Codex | 2026-08-10 | WIW is live at `https://wiw.kineticapp.online` behind the shared Nginx proxy. The remaining milestone work is RLS mutation verification, complete auth recovery verification, and local-data reset guidance. |
 | 5. Mobile frontend | `[ ]` | Unassigned | — | Starts after the live web app is operating successfully. |
 | 6. Test, polish, and release | `[ ]` | Unassigned | — | — |
@@ -216,6 +217,24 @@ Build the visual shell with mock data before connecting real authentication or s
 - [x] The dashboard shows at most three current, prioritized insights and changes when the selected period or transactions change.
 - [x] Insights do not make recommendations when there is insufficient evidence.
 - [x] Tests cover each insight threshold, priority ordering, no-data behavior, recurring-spend detection, and budget/savings forecasts.
+
+## Milestone 3.7 — Planned expenses and cash forecast
+
+**Status:** `[-]`
+
+### Implement
+
+- [-] Create planned expenses with description, amount, category, and expected date.
+- [-] Keep planned expenses out of actual totals, budgets, and balance reconciliation while showing a forecast balance after plans.
+- [-] List planned entries distinctly and allow a user to mark one paid, converting it to a posted expense.
+- [-] Persist planned status through local storage and Supabase with a migration.
+
+### Acceptance checks
+
+- [ ] A planned expense does not change current spending, actual balance, category totals, or budget progress.
+- [ ] Forecast totals include planned expenses and update after creation, editing, deletion, or marking paid.
+- [ ] Marking a planned expense paid converts it to a normal expense and updates actual reports.
+- [ ] Planned entries persist after refresh and across signed-in sessions.
 
 ## Milestone 4 — Supabase backend, live web app, and VPS deployment
 
