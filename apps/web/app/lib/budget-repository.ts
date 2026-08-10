@@ -108,7 +108,8 @@ function isTransaction(value: unknown): value is Transaction {
 function isBalanceCheck(value: unknown): value is BalanceCheck {
   if (!value || typeof value !== "object") return false;
   const check = value as Partial<BalanceCheck>;
-  return typeof check.id === "number" && typeof check.periodStart === "string" && typeof check.periodEnd === "string" && Number.isFinite(check.actualBalance);
+  return typeof check.id === "number" && typeof check.periodStart === "string" && typeof check.periodEnd === "string" && Number.isFinite(check.actualBalance)
+    && (check.accountId === undefined || typeof check.accountId === "number");
 }
 
 function isBudget(value: unknown): value is Budget {

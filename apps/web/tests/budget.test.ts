@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountBalancesFor, balanceExpectationFor, budgetProgressFor, budgetSummaryFor, insightsFor, isoDate, percentageOf, previousRange, reconciliationFor, reportRange, spendingChange, totalsFor, type Transaction } from "../app/lib/budget.ts";
+import { accountBalancesFor, accountExpectationFor, balanceExpectationFor, budgetProgressFor, budgetSummaryFor, insightsFor, isoDate, percentageOf, previousRange, reconciliationFor, reportRange, spendingChange, totalsFor, type Transaction } from "../app/lib/budget.ts";
 
 const income: Transaction = { id: 1, name: "Pay", category: "Income", amount: 10000, date: "2026-08-01", type: "income", icon: "*" };
 const food: Transaction = { id: 2, name: "Food", category: "Food", amount: 2500, date: "2026-08-02", type: "expense", icon: "*" };
@@ -31,6 +31,8 @@ test("treats a credit-card payment as a transfer, not new spending", () => {
   const payment = { ...food, id: 102, name: "Pay card", amount: 5000, type: "transfer" as const, fromAccountId: 1, toAccountId: 2 };
   assert.deepEqual(totalsFor([purchase, payment]), { income: 0, spending: 2000, balance: -2000, savingsRate: 0 });
   assert.deepEqual(accountBalancesFor(accounts, [purchase, payment]).map(({ name, balance, amountOwed, availableCredit }) => ({ name, balance, amountOwed, availableCredit })), [{ name: "Bank", balance: 5000, amountOwed: 0, availableCredit: 0 }, { name: "Card", balance: 0, amountOwed: 0, availableCredit: 20000 }]);
+  assert.deepEqual(accountExpectationFor(accounts[0], [purchase, payment]), { expectedBalance: 5000, label: "balance" });
+  assert.deepEqual(accountExpectationFor(accounts[1], [purchase, payment]), { expectedBalance: 0, label: "amount owed" });
 });
 test("handles no spending and produces evidence-based insight", () => {
   assert.equal(insightsFor([income])[0].title, "No spending recorded");

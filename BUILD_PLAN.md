@@ -14,6 +14,7 @@
 | 3.6 Insight intelligence | `[x]` | Codex | 2026-08-09 | Explainable, prioritized live insight feeds and threshold coverage are complete and verified. |
 | 3.7 Planned expenses and cash forecast | `[-]` | Codex | 2026-08-10 | Built and wired locally. Apply the planned-transactions migration and verify one signed-in refresh before marking complete. |
 | 3.8 Accounts and transfers | `[-]` | Codex | 2026-08-10 | Built and wired locally, including cloud save/load. Apply the accounts-and-transfers migration and verify one signed-in refresh before marking complete. |
+| 3.9 Account reconciliation | `[-]` | Codex | 2026-08-10 | Built locally: each bank, cash, or credit-card account can be checked against its real statement balance. Apply the account-balance-check migration and verify a signed-in refresh. |
 | 4. Supabase backend, live web app, and deployment | `[-]` | Codex | 2026-08-10 | WIW is live at `https://wiw.kineticapp.online` behind the shared Nginx proxy. The remaining milestone work is RLS mutation verification, complete auth recovery verification, and local-data reset guidance. |
 | 5. Mobile frontend | `[ ]` | Unassigned | — | Starts after the live web app is operating successfully. |
 | 6. Test, polish, and release | `[ ]` | Unassigned | — | — |
@@ -257,6 +258,23 @@ Build the visual shell with mock data before connecting real authentication or s
 - [ ] Transfers preserve net worth and remain distinct from planned entries.
 - [ ] Accounts and transfers persist across refresh and signed-in sessions.
 - [x] An account can be edited; deletion is blocked while it has linked transactions.
+
+## Milestone 3.9 — Account reconciliation
+
+**Status:** `[-]`
+
+### Implement
+
+- [x] Keep the overall balance check for a high-level cash-flow view.
+- [x] Add a per-account statement check for cash, bank, and credit-card accounts.
+- [x] Compare real account balance or card amount owed with the calculated account figure.
+- [-] Persist account checks locally and in Supabase with a user-owned account reference; apply and verify the migration.
+
+### Acceptance checks
+
+- [ ] A bank balance check identifies a difference without affecting spending totals.
+- [ ] A credit-card check compares amount owed, not available credit.
+- [ ] Account checks persist through a signed-in refresh.
 
 ## Milestone 4 — Supabase backend, live web app, and VPS deployment
 
