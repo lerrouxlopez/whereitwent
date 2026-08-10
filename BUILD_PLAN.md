@@ -247,7 +247,7 @@ Build the visual shell with mock data before connecting real authentication or s
 - [x] Let income and expenses be assigned to an account.
 - [x] Create transfers with a source and destination account; transfer amounts do not count as income or expense.
 - [x] Calculate cash balances, card amount owed, and available credit from assigned transactions and transfers.
-- [x] Provide a dedicated Accounts screen and a credit-card payment shortcut.
+- [x] Provide a dedicated Accounts screen, account editing and safe deletion, and a credit-card payment shortcut.
 - [-] Persist accounts and transaction account references locally and in Supabase with row-level security; the migration must be applied and verified on the live project.
 
 ### Acceptance checks
@@ -256,6 +256,7 @@ Build the visual shell with mock data before connecting real authentication or s
 - [ ] A credit-card payment reduces cash and card debt, restores available credit, and does not change income/spending totals.
 - [ ] Transfers preserve net worth and remain distinct from planned entries.
 - [ ] Accounts and transfers persist across refresh and signed-in sessions.
+- [x] An account can be edited; deletion is blocked while it has linked transactions.
 
 ## Milestone 4 — Supabase backend, live web app, and VPS deployment
 
