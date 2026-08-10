@@ -19,6 +19,7 @@ test("local repository retains and restores WIW records", () => {
   values.clear();
   const transactions = [{ id: 10, name: "New pay", category: "Income", amount: 5000, date: "2026-08-07", type: "income" as const, icon: "*" }];
   const budgets = [{ id: 3, category: "Food", limit: 2000, icon: "*", tone: "blue" as const }];
+  const accounts = [{ id: 1, name: "Main bank", kind: "bank" as const, openingBalance: 5000 }, { id: 2, name: "Credit card", kind: "credit_card" as const, openingBalance: 1200, creditLimit: 10000 }];
 
   localBudgetRepository.saveTransactions(transactions);
   localBudgetRepository.saveBudgets(budgets);
@@ -26,6 +27,7 @@ test("local repository retains and restores WIW records", () => {
   localBudgetRepository.saveProfile("Sam", "USD", "week");
   localBudgetRepository.saveSavingsGoal(7000);
   localBudgetRepository.saveBalanceChecks([{ id: 4, periodStart: "2026-08-01", periodEnd: "2026-08-07", actualBalance: 6300 }]);
+  localBudgetRepository.saveAccounts(accounts);
 
   assert.deepEqual(localBudgetRepository.loadTransactions(), transactions);
   assert.deepEqual(localBudgetRepository.loadBudgets(), budgets);
@@ -33,6 +35,7 @@ test("local repository retains and restores WIW records", () => {
   assert.deepEqual(localBudgetRepository.loadProfile(), { name: "Sam", currency: "USD", period: "week", startingBalance: 0 });
   assert.equal(localBudgetRepository.loadSavingsGoal(), 7000);
   assert.deepEqual(localBudgetRepository.loadBalanceChecks(), [{ id: 4, periodStart: "2026-08-01", periodEnd: "2026-08-07", actualBalance: 6300 }]);
+  assert.deepEqual(localBudgetRepository.loadAccounts(), accounts);
 });
 
 test("local repository ignores malformed records", () => {
@@ -41,9 +44,11 @@ test("local repository ignores malformed records", () => {
   values.set("wiw:budgets:v1", JSON.stringify([{ category: "Food" }]));
   values.set("wiw:categories:v1", JSON.stringify(["Food", 4, ""]));
   values.set("wiw:savings-goal:v1", JSON.stringify(-5));
+  values.set("wiw:accounts:v1", JSON.stringify([{ id: "bad" }, { id: 1, name: "Cash", kind: "cash", openingBalance: 25 }]));
 
   assert.deepEqual(localBudgetRepository.loadTransactions(), []);
   assert.deepEqual(localBudgetRepository.loadBudgets(), []);
   assert.deepEqual(localBudgetRepository.loadCategories(), ["Food"]);
   assert.equal(localBudgetRepository.loadSavingsGoal(), null);
+  assert.deepEqual(localBudgetRepository.loadAccounts(), [{ id: 1, name: "Cash", kind: "cash", openingBalance: 25 }]);
 });

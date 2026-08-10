@@ -11,6 +11,7 @@ type Transaction = budgetDomain.Transaction;
 type Budget = budgetDomain.Budget;
 type BalanceCheck = budgetDomain.BalanceCheck;
 type EntryMode = Transaction["type"] | "planned";
+type Account = budgetDomain.Account;
 
 const initialTransactions: Transaction[] = [
   { id: 1, name: "Monthly salary", category: "Income", amount: 82000, date: "2026-08-01", type: "income", icon: "✦" },
@@ -30,6 +31,11 @@ const initialBudgets: Budget[] = [
   { id: 1, category: "Dining out", limit: 3000, icon: "☕", tone: "peach" },
   { id: 2, category: "Transport", limit: 4500, icon: "◈", tone: "blue" },
   { id: 3, category: "Food & groceries", limit: 7500, icon: "🛒", tone: "purple" },
+];
+const initialAccounts: Account[] = [
+  { id: 1, name: "Main bank", kind: "bank", openingBalance: 0 },
+  { id: 2, name: "Cash", kind: "cash", openingBalance: 0 },
+  { id: 3, name: "Credit card", kind: "credit_card", openingBalance: 0, creditLimit: 50000 },
 ];
 const periodOptions = [
   ["today", "Today"], ["week", "This week"], ["biweekly", "Bi-weekly"], ["month", "This month"], ["year", "This year"], ["custom", "Custom"],
@@ -76,6 +82,9 @@ export default function Home() {
   const [categoryVersion, setCategoryVersion] = useState(0);
   const [storageNotice, setStorageNotice] = useState("");
   const [budgets, setBudgets] = useState<Budget[]>(initialBudgets);
+  const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
+  const [accountsReady, setAccountsReady] = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [budgetsReady, setBudgetsReady] = useState(false);
   const [customStart, setCustomStart] = useState("2026-08-01");
   const [customEnd, setCustomEnd] = useState("2026-08-07");
@@ -145,6 +154,13 @@ export default function Home() {
 
   useEffect(() => { if (!isSupabaseConfigured) setBalanceChecks(localBudgetRepository.loadBalanceChecks()); }, []);
   useEffect(() => { if (!isSupabaseConfigured) localBudgetRepository.saveBalanceChecks(balanceChecks); }, [balanceChecks]);
+  useEffect(() => {
+    if (isSupabaseConfigured) return;
+    const storedAccounts = localBudgetRepository.loadAccounts();
+    if (storedAccounts.length) setAccounts(storedAccounts);
+    setAccountsReady(true);
+  }, []);
+  useEffect(() => { if (accountsReady && !isSupabaseConfigured) localBudgetRepository.saveAccounts(accounts); }, [accounts, accountsReady]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -171,8 +187,10 @@ export default function Home() {
       setTransactions(snapshot.transactions);
       setBudgets(snapshot.budgets);
       setBalanceChecks(snapshot.balanceChecks);
+      setAccounts(snapshot.accounts.length ? snapshot.accounts : initialAccounts);
       setTransactionsReady(true);
       setBudgetsReady(true);
+      setAccountsReady(true);
       setCloudReady(true);
     }).catch((error: unknown) => {
       if (active) setStorageNotice(`We could not load your cloud data: ${describeCloudError(error)}`);
@@ -188,8 +206,9 @@ export default function Home() {
       transactions,
       budgets,
       balanceChecks,
+      accounts,
     }).catch((error: unknown) => setStorageNotice(`We could not save your latest cloud changes: ${describeCloudError(error)}`));
-  }, [cloudReady, profileName, currencyCode, period, startingBalance, savingsGoal, categoryVersion, transactions, budgets, balanceChecks]);
+  }, [cloudReady, profileName, currencyCode, period, startingBalance, savingsGoal, categoryVersion, transactions, budgets, balanceChecks, accounts]);
 
   const activeRange = useMemo(() => budgetDomain.reportRange(period, customStart, customEnd), [period, customStart, customEnd]);
   const periodTransactions = useMemo(() => budgetDomain.transactionsInRange(transactions, activeRange), [transactions, activeRange]);
@@ -197,6 +216,7 @@ export default function Home() {
   const totals = useMemo(() => budgetDomain.totalsFor(periodTransactions), [periodTransactions]);
   const spendingByCategory = useMemo(() => budgetDomain.spendingByCategoryFor(periodTransactions), [periodTransactions]);
   const budgetProgress = useMemo(() => budgetDomain.budgetProgressFor(budgets, spendingByCategory), [budgets, spendingByCategory]);
+  const accountBalances = useMemo(() => budgetDomain.accountBalancesFor(accounts, transactions), [accounts, transactions]);
   const plannedTransactions = useMemo(() => periodTransactions.filter((item) => item.status === "planned"), [periodTransactions]);
   const plannedTotal = useMemo(() => plannedTransactions.reduce((sum, item) => sum + item.amount, 0), [plannedTransactions]);
 
@@ -234,7 +254,8 @@ export default function Home() {
     const transactionType: Transaction["type"] = modalType === "planned" ? "expense" : modalType!;
     const category = modalType === "income" ? "Income" : modalType === "transfer" ? "Transfer" : String(data.get("category"));
     if (!amount || amount < 1 || !modalType) return;
-    setTransactions((items) => [{ id: Date.now(), name: description, category, amount, date: String(data.get("date") || new Date().toISOString().slice(0, 10)), type: transactionType, status: planned ? "planned" : "posted", icon: modalType === "income" ? "✦" : "●" }, ...items]);
+    const accountId = Number(data.get("accountId"));
+    setTransactions((items) => [{ id: Date.now(), name: description, category, amount, date: String(data.get("date") || new Date().toISOString().slice(0, 10)), type: transactionType, status: planned ? "planned" : "posted", accountId: Number.isFinite(accountId) ? accountId : undefined, icon: modalType === "income" ? "✦" : "●" }, ...items]);
     setModalType(null);
     setToast(planned ? "Planned expense added" : `${modalType === "income" ? "Income" : "Expense"} added successfully`);
     window.setTimeout(() => setToast(""), 2800);
@@ -253,6 +274,38 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 2800);
   }
 
+  function addAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const name = String(data.get("name") || "").trim();
+    const kind = String(data.get("kind")) as Account["kind"];
+    const openingBalance = Number(data.get("openingBalance"));
+    const creditLimit = Number(data.get("creditLimit"));
+    if (!name || accounts.some((item) => item.name.toLowerCase() === name.toLowerCase()) || !Number.isFinite(openingBalance) || !["cash", "bank", "credit_card"].includes(kind)) {
+      setToast(accounts.some((item) => item.name.toLowerCase() === name.toLowerCase()) ? "An account with that name already exists" : "Enter a valid account");
+      window.setTimeout(() => setToast(""), 2800);
+      return;
+    }
+    const account = { id: Date.now(), name, kind, openingBalance, creditLimit: kind === "credit_card" && Number.isFinite(creditLimit) ? Math.max(creditLimit, 0) : undefined };
+    setAccounts((items) => [...items, account]);
+    setAccountModalOpen(false);
+    setToast("Account added");
+    window.setTimeout(() => setToast(""), 2800);
+  }
+
+  function addTransfer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const amount = Number(data.get("amount"));
+    const fromAccountId = Number(data.get("fromAccountId"));
+    const toAccountId = Number(data.get("toAccountId"));
+    if (!Number.isFinite(amount) || amount < 1 || fromAccountId === toAccountId) return;
+    setTransactions((items) => [{ id: Date.now(), name: String(data.get("description") || "Transfer"), category: "Transfer", amount, date: String(data.get("date") || new Date().toISOString().slice(0, 10)), type: "transfer", status: "posted", fromAccountId, toAccountId, icon: "↔" }, ...items]);
+    setModalType(null);
+    setToast("Transfer recorded");
+    window.setTimeout(() => setToast(""), 2800);
+  }
+
   function updateTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingTransaction) return;
@@ -261,7 +314,8 @@ export default function Home() {
     const description = String(data.get("description") || "New transaction");
     const category = editingTransaction.type === "income" ? "Income" : editingTransaction.type === "transfer" ? "Transfer" : String(data.get("category"));
     if (!amount || amount < 1) return;
-    setTransactions((items) => items.map((item) => item.id === editingTransaction.id ? { ...item, name: description, amount, category, date: String(data.get("date") || item.date) } : item));
+    const accountId = Number(data.get("accountId"));
+    setTransactions((items) => items.map((item) => item.id === editingTransaction.id ? { ...item, name: description, amount, category, date: String(data.get("date") || item.date), accountId: Number.isFinite(accountId) ? accountId : undefined } : item));
     setEditingTransaction(null);
     setToast("Transaction updated");
     window.setTimeout(() => setToast(""), 2800);
@@ -331,7 +385,7 @@ export default function Home() {
   }
 
   if (!authenticated) return <AuthScreen mode={authMode} onModeChange={setAuthMode} onAuthenticate={() => setAuthenticated(true)} />;
-  if (!transactionsReady || !budgetsReady) return <LoadingScreen />;
+  if (!transactionsReady || !budgetsReady || !accountsReady) return <LoadingScreen />;
 
   return (
     <main className="app-shell">
@@ -339,7 +393,7 @@ export default function Home() {
         <div className="brand"><span className="brand-mark" aria-hidden="true" /><small>Where It Went</small></div>
         <div className="workspace-label">YOUR MONEY</div>
         <nav aria-label="Main navigation">
-          {[ ["Overview", "⌂"], ["Transactions", "↕"], ["Budgets", "◌"], ["Insights", "✦"] ].map(([name, icon]) => (
+          {[ ["Overview", "⌂"], ["Transactions", "↕"], ["Accounts", "▣"], ["Budgets", "◌"], ["Insights", "✦"] ].map(([name, icon]) => (
             <button className={`nav-item ${activeTab === name ? "active" : ""}`} aria-current={activeTab === name ? "page" : undefined} key={name} onClick={() => setActiveTab(name)}><span>{icon}</span>{name}</button>
           ))}
         </nav>
@@ -382,10 +436,12 @@ export default function Home() {
             <article className="panel transactions-panel"><div className="panel-heading"><div><h2>Recent activity</h2><p>Your latest money moves</p></div><button className="quiet-button" onClick={() => setActiveTab("Transactions")}>See all <span>→</span></button></div><div className="transaction-list">{periodTransactions.length ? periodTransactions.slice(0, 5).map((item) => <div className="transaction" key={item.id}><span className={`transaction-icon ${item.type}`}>{item.icon}</span><div><strong>{item.name}</strong><small>{item.status === "planned" ? "Planned · " : ""}{item.category} · {displayDate(item.date)}</small></div><b className={item.status === "planned" ? "planned" : item.type}>{item.type === "income" ? "+" : "−"}{peso(item.amount)}</b>{item.status === "planned" && <button className="quiet-button" onClick={() => markPlannedExpensePaid(item.id)}>Mark paid</button>}</div>) : <div className="dashboard-empty"><span>◎</span><p>No activity in this period yet.</p><button className="text-link" onClick={() => setModalType("expense")}>Add an expense <span>→</span></button></div>}</div></article>
 <article className="panel budget-panel"><div className="panel-heading"><div><h2>Budget check-in</h2><p>Your monthly limits</p></div><button className="quiet-button" onClick={() => setActiveTab("Budgets")}>Manage <span>→</span></button></div>{budgetProgress.length ? budgetProgress.slice(0, 2).map((budget) => <div key={budget.id}><div className="budget-row"><div><span className={`budget-icon ${budget.tone === "blue" ? "blue" : ""}`}>{budget.icon}</span><p><strong>{budget.category}</strong><small>{peso(budget.spent)} of {peso(budget.limit)}</small></p></div><span className="budget-percent">{budget.percent}%</span></div><div className={`budget-bar ${budget.tone === "blue" ? "blue" : ""}`}><i style={{ width: `${Math.min(budget.percent, 100)}%` }} /></div></div>) : <div className="dashboard-empty"><p>No budgets yet.</p><button className="text-link" onClick={() => setActiveTab("Budgets")}>Create a budget <span>→</span></button></div>}</article>
           </section>
-        </> : activeTab === "Budgets" ? <BudgetView budgets={budgetProgress} onCreate={() => { setEditingBudget(null); setBudgetModalOpen(true); }} onCreateCategory={() => setCategoryDialog({ mode: "create" })} onRenameCategory={(category) => setCategoryDialog({ mode: "rename", category })} onDeleteCategory={deleteCategory} onEdit={(budget) => { setEditingBudget(budget); setBudgetModalOpen(true); }} onDelete={deleteBudget} /> : <SecondaryView activeTab={activeTab} transactions={transactions} insightTransactions={periodTransactions} previousInsightTransactions={previousPeriodTransactions} insightRange={activeRange} budgets={budgets} reconciliation={reconciliation} totals={totals} spendingByCategory={spendingByCategory} profileName={profileName} currencyCode={currencyCode} defaultPeriod={period} startingBalance={startingBalance} savingsGoal={savingsGoal} onSaveSavingsGoal={(amount) => { setSavingsGoal(amount); if (!isSupabaseConfigured) localBudgetRepository.saveSavingsGoal(amount); }} onSaveSettings={(name, currency, nextPeriod, nextStartingBalance) => { setProfileName(name); setCurrencyCode(currency); if (nextPeriod) setPeriod(nextPeriod); if (typeof nextStartingBalance === "number") setStartingBalance(nextStartingBalance); }} onReturn={() => setActiveTab("Overview")} onAddExpense={() => setModalType("expense")} onAddIncome={() => setModalType("income")} onSignOut={() => void signOut()} onDeleteTransaction={deleteTransaction} onEditTransaction={setEditingTransaction} />}
+        </> : activeTab === "Budgets" ? <BudgetView budgets={budgetProgress} onCreate={() => { setEditingBudget(null); setBudgetModalOpen(true); }} onCreateCategory={() => setCategoryDialog({ mode: "create" })} onRenameCategory={(category) => setCategoryDialog({ mode: "rename", category })} onDeleteCategory={deleteCategory} onEdit={(budget) => { setEditingBudget(budget); setBudgetModalOpen(true); }} onDelete={deleteBudget} /> : activeTab === "Accounts" ? <AccountsView accounts={accountBalances} onAddAccount={() => setAccountModalOpen(true)} onTransfer={() => setModalType("transfer")} /> : <SecondaryView activeTab={activeTab} transactions={transactions} insightTransactions={periodTransactions} previousInsightTransactions={previousPeriodTransactions} insightRange={activeRange} budgets={budgets} reconciliation={reconciliation} totals={totals} spendingByCategory={spendingByCategory} profileName={profileName} currencyCode={currencyCode} defaultPeriod={period} startingBalance={startingBalance} savingsGoal={savingsGoal} onSaveSavingsGoal={(amount) => { setSavingsGoal(amount); if (!isSupabaseConfigured) localBudgetRepository.saveSavingsGoal(amount); }} onSaveSettings={(name, currency, nextPeriod, nextStartingBalance) => { setProfileName(name); setCurrencyCode(currency); if (nextPeriod) setPeriod(nextPeriod); if (typeof nextStartingBalance === "number") setStartingBalance(nextStartingBalance); }} onReturn={() => setActiveTab("Overview")} onAddExpense={() => setModalType("expense")} onAddIncome={() => setModalType("income")} onSignOut={() => void signOut()} onDeleteTransaction={deleteTransaction} onEditTransaction={setEditingTransaction} />}
       </section>
 
-      {(modalType || editingTransaction) && <ValidatedTransactionModal type={editingTransaction?.status === "planned" ? "planned" : editingTransaction?.type || modalType!} transaction={editingTransaction || undefined} onClose={() => { setModalType(null); setEditingTransaction(null); }} onSubmit={editingTransaction ? updateTransaction : addTransaction} />}
+      {modalType === "transfer" && <TransferModal accounts={accounts} onClose={() => setModalType(null)} onSubmit={addTransfer} />}
+      {(modalType && modalType !== "transfer" || editingTransaction) && <ValidatedTransactionModal accounts={accounts} type={editingTransaction?.status === "planned" ? "planned" : editingTransaction?.type || modalType!} transaction={editingTransaction || undefined} onClose={() => { setModalType(null); setEditingTransaction(null); }} onSubmit={editingTransaction ? updateTransaction : addTransaction} />}
+      {accountModalOpen && <AccountModal onClose={() => setAccountModalOpen(false)} onSubmit={addAccount} />}
       {budgetModalOpen && <ValidatedBudgetModal budget={editingBudget || undefined} onClose={() => { setBudgetModalOpen(false); setEditingBudget(null); }} onSubmit={saveBudget} />}
       {balanceCheckDialogOpen && <BalanceCheckModal expectedBalance={balanceExpectation.expectedBalance} actualBalance={savedBalanceCheck?.actualBalance} onClose={() => setBalanceCheckDialogOpen(false)} onSubmit={saveBalanceCheck} />}
       {categoryDialog && <CategoryModal category={categoryDialog.category} categories={categories} onClose={() => setCategoryDialog(null)} onSubmit={saveCategory} />}
@@ -403,6 +459,18 @@ function BudgetView({ budgets, onCreate, onCreateCategory, onRenameCategory, onD
   void onDeleteCategory;
   const summary = budgetDomain.budgetSummaryFor(budgets);
 return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">SPEND WITH INTENTION</p><h2>Your budgets</h2><p>Set a limit for the things that matter and see your pace.</p></div><div className="add-actions"><button className="secondary-button" onClick={onCreateCategory}>＋ Category</button><button className="primary-button" onClick={onCreate}>＋ Create budget</button></div></div><div className="budget-overview"><div><span>Budget progress</span><strong>{peso(summary.spent)}</strong><small>of {peso(summary.allocated)} planned</small></div><div className="budget-overview-bar"><i style={{ width: `${Math.min(summary.percent, 100)}%` }} /></div><p><strong>{summary.percent}%</strong> used so far</p></div><div className="budget-cards">{budgets.length ? budgets.map((budget) => <article className="budget-card" key={budget.id}><span className={`budget-card-icon ${budget.tone}`}>{budget.icon}</span><div className="budget-card-heading"><h3>{budget.category}</h3><div><button onClick={() => onEdit(budget)} aria-label={`Edit ${budget.category} budget`}>Edit</button><button onClick={() => onDelete(budget.id)} aria-label={`Delete ${budget.category} budget`}>Delete</button></div></div><p>{peso(budget.spent)} of {peso(budget.limit)}</p><div className="budget-bar"><i style={{ width: `${Math.min(budget.percent, 100)}%` }} /></div><div><small>{budget.percent}% used</small><strong>{peso(budget.remaining)} {budget.spent > budget.limit ? "over" : "left"}</strong></div></article>) : <div className="transaction-empty"><span>◉</span><h3>No budgets yet</h3><p>Create a category limit to start tracking your pace.</p><button className="primary-button" onClick={onCreate}>Create budget</button></div>}</div><section className="category-manager"><div><p className="eyebrow">CATEGORIES</p><h3>Expense categories</h3></div><div className="category-list">{categories.map((category) => <div key={category}><span>{category}</span><button onClick={() => onRenameCategory(category)}>Rename</button>{!defaultCategories.includes(category) && <button onClick={() => onDeleteCategory(category)}>Delete</button>}</div>)}</div></section></section>;
+}
+
+function AccountsView({ accounts, onAddAccount, onTransfer }: { accounts: budgetDomain.AccountBalance[]; onAddAccount: () => void; onTransfer: () => void }) {
+  return <section className="subpage"><div className="subpage-heading"><div><p className="eyebrow">YOUR MONEY LOCATIONS</p><h2>Accounts & transfers</h2><p>Track cash, bank money, and credit-card debt without counting payments twice.</p></div><div className="add-actions"><button className="secondary-button" onClick={onAddAccount}>+ Add account</button><button className="primary-button" onClick={onTransfer}>Transfer / pay card</button></div></div><div className="budget-cards">{accounts.map((account) => <article className="budget-card" key={account.id}><div className="budget-card-heading"><h3>{account.name}</h3><small>{account.kind === "credit_card" ? "Credit card" : account.kind === "bank" ? "Bank" : "Cash"}</small></div>{account.kind === "credit_card" ? <><p>{peso(account.amountOwed)} owed</p><div><small>Available credit</small><strong>{peso(account.availableCredit)}</strong></div></> : <><p>Current balance</p><strong>{peso(account.balance)}</strong></>}</article>)}</div><p className="balance-check-copy">Card purchases count as spending once. Use a transfer from your bank to the card when paying its bill.</p></section>;
+}
+
+function AccountModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Add account"><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close account dialog" /><form className="transaction-modal" onSubmit={onSubmit}><div className="modal-heading"><div><p className="eyebrow">NEW ACCOUNT</p><h2>Add an account</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><label>Name<input name="name" required /></label><label>Type<select name="kind"><option value="bank">Bank</option><option value="cash">Cash</option><option value="credit_card">Credit card</option></select></label><label>Opening balance / amount owed<input name="openingBalance" type="number" min="0" step="1" defaultValue="0" required /></label><label>Credit limit<input name="creditLimit" type="number" min="0" step="1" defaultValue="0" /></label><button className="primary-button full" type="submit">Add account</button></form></div>;
+}
+
+function TransferModal({ accounts, onClose, onSubmit }: { accounts: Account[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Transfer money"><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close transfer dialog" /><form className="transaction-modal" onSubmit={onSubmit}><div className="modal-heading"><div><p className="eyebrow">TRANSFER</p><h2>Move money or pay a card</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><p className="modal-help">Transfers do not count as income or spending.</p><label>Description<input name="description" defaultValue="Credit card payment" required /></label><label>From<select name="fromAccountId">{accounts.filter((account) => account.kind !== "credit_card").map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><label>To<select name="toAccountId">{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><label>Amount<input name="amount" type="number" min="1" step="1" required /></label><label>Date<input name="date" type="date" defaultValue="2026-08-07" required /></label><button className="primary-button full" type="submit">Record transfer</button></form></div>;
 }
 
 function SecondaryView({ activeTab, transactions, insightTransactions, previousInsightTransactions, insightRange, budgets, reconciliation, totals, spendingByCategory, profileName, currencyCode, defaultPeriod, startingBalance, savingsGoal, onSaveSavingsGoal, onSaveSettings, onReturn, onAddExpense: addExpense, onAddIncome, onSignOut, onDeleteTransaction, onEditTransaction }: { activeTab: string; transactions: Transaction[]; insightTransactions: Transaction[]; previousInsightTransactions: Transaction[]; insightRange: budgetDomain.DateRange; budgets: Budget[]; reconciliation: ReturnType<typeof budgetDomain.reconciliationFor> | null; totals: { income: number; spending: number; balance: number; savingsRate: number }; spendingByCategory: [string, number][]; profileName: string; currencyCode: string; defaultPeriod: (typeof periodOptions)[number][0]; startingBalance: number; savingsGoal: number | null; onSaveSavingsGoal: (amount: number) => void; onSaveSettings: (name: string, currency: string, period?: (typeof periodOptions)[number][0], startingBalance?: number) => void; onReturn: () => void; onAddExpense: () => void; onAddIncome: () => void; onSignOut: () => void; onDeleteTransaction: (id: number) => void; onEditTransaction: (transaction: Transaction) => void }) {
@@ -511,7 +579,7 @@ function BalanceCheckModal({ expectedBalance, actualBalance, onClose, onSubmit }
   return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Balance check"><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close balance check dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">BALANCE CHECK</p><h2>Compare your real balance</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div><p className="modal-help">WIW expects {peso(expectedBalance)} based on your starting balance and recorded money moves.</p><label>Actual money available<input name="actualBalance" type="number" min="0" step="1" defaultValue={actualBalance} placeholder="0" onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">Save balance check</button></form></div>;
 }
 
-function ValidatedTransactionModal({ type, transaction, onClose, onSubmit }: { type: EntryMode; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function ValidatedTransactionModal({ accounts, type, transaction, onClose, onSubmit }: { accounts: Account[]; type: EntryMode; transaction?: Transaction; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const editing = Boolean(transaction);
   const [error, setError] = useState("");
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -527,7 +595,7 @@ function ValidatedTransactionModal({ type, transaction, onClose, onSubmit }: { t
     onSubmit(event);
   }
   const planned = type === "planned";
-  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${editing ? "Edit" : "Add"} ${type}`}><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close transaction dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">{editing ? "EDIT" : "NEW"} {planned ? "PLANNED EXPENSE" : type.toUpperCase()}</p><h2>{editing ? "Edit" : "Add"} {planned ? "planned expense" : type}</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div>{planned && <p className="modal-help">This stays out of actual spending and budgets until you mark it paid.</p>}<label>Description<input name="description" defaultValue={transaction?.name} placeholder={type === "income" ? "e.g. Freelance project" : "e.g. Grocery run"} onChange={() => setError("")} required /></label><label>Amount<input name="amount" type="number" defaultValue={transaction?.amount} min="1" step="1" placeholder="0" onChange={() => setError("")} required /></label>{(type === "expense" || planned) && <label>Category<select name="category" defaultValue={transaction?.category}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>}<label>{planned ? "Expected date" : "Date"}<input name="date" type="date" defaultValue={transaction?.date || "2026-08-07"} onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">{editing ? "Save changes" : planned ? "Add planned expense" : `Add ${type}`}</button></form></div>;
+  return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`${editing ? "Edit" : "Add"} ${type}`}><button type="button" className="modal-dismiss" onClick={onClose} aria-label="Close transaction dialog" /><form className="transaction-modal" onSubmit={submit}><div className="modal-heading"><div><p className="eyebrow">{editing ? "EDIT" : "NEW"} {planned ? "PLANNED EXPENSE" : type.toUpperCase()}</p><h2>{editing ? "Edit" : "Add"} {planned ? "planned expense" : type}</h2></div><button type="button" className="close-button" onClick={onClose} aria-label="Close">&times;</button></div>{planned && <p className="modal-help">This stays out of actual spending and budgets until you mark it paid.</p>}<label>Description<input name="description" defaultValue={transaction?.name} placeholder={type === "income" ? "e.g. Freelance project" : "e.g. Grocery run"} onChange={() => setError("")} required /></label><label>Amount<input name="amount" type="number" defaultValue={transaction?.amount} min="1" step="1" placeholder="0" onChange={() => setError("")} required /></label>{(type === "expense" || planned) && <label>Category<select name="category" defaultValue={transaction?.category}>{categories.map((category) => <option key={category}>{category}</option>)}</select></label>}<label>Account<select name="accountId" defaultValue={transaction?.accountId || accounts[0]?.id} disabled={!accounts.length}><option value="">{accounts.length ? "Select an account" : "Add an account first"}</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><label>{planned ? "Expected date" : "Date"}<input name="date" type="date" defaultValue={transaction?.date || "2026-08-07"} onChange={() => setError("")} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button full" type="submit">{editing ? "Save changes" : planned ? "Add planned expense" : `Add ${type}`}</button></form></div>;
 }
 
 function ValidatedBudgetModal({ budget, onClose, onSubmit }: { budget?: Budget; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {

@@ -46,6 +46,7 @@ Individuals who want a simple, detailed understanding of their spending without 
 - Clear reconciliation of expected versus actual balance, with a guided way to add a missed income or expense
 - An explicit, clearly labelled untracked-spending adjustment when the difference cannot yet be identified
 - Transfers tracked separately so moving money between a user’s own accounts does not count as spending
+- Account balances for cash, bank, and credit-card accounts; card payments are transfers that reduce card debt and restore available credit without counting as income or spending
 - Planned expenses with an expected date, forecast total, and mark-paid conversion; planned items do not affect actual spending, budgets, or reconciliation until paid
 
 ### Budget reporting
@@ -55,6 +56,13 @@ Individuals who want a simple, detailed understanding of their spending without 
 - Spending by category
 - Income-versus-expense trends
 - Current period versus previous equivalent period
+
+### Accounts and transfers
+
+- Cash, bank, and credit-card accounts with opening balances
+- Credit-card limit, amount owed, and available-credit display
+- Transfers between accounts, including credit-card payments
+- Expenses can be assigned to an account so card purchases increase the amount owed while payments do not double-count spending
 
 ### Where My Money Went
 

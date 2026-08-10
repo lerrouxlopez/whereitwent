@@ -1,4 +1,4 @@
-import { balanceExpectationFor, localDate, type BalanceCheck, type Budget, type Period, type Transaction } from "./budget";
+import { balanceExpectationFor, localDate, type Account, type BalanceCheck, type Budget, type Period, type Transaction } from "./budget";
 import { getSupabaseClient } from "./supabase";
 
 export type CloudProfile = { name: string; currency: string; period: Period; startingBalance: number; savingsGoal: number | null };
@@ -8,21 +8,20 @@ export type CloudSnapshot = {
   transactions: Transaction[];
   budgets: Budget[];
   balanceChecks: BalanceCheck[];
+  accounts: Account[];
 };
 
 type CategoryRow = { id: string; name: string; icon: string; kind: "income" | "expense" };
 type RelatedCategory = { name?: string; icon?: string } | { name?: string; icon?: string }[] | null;
-type TransactionRow = { id: string; type: Transaction["type"]; status: "posted" | "planned" | null; amount_minor: number; transaction_date: string; notes: string | null; categories: RelatedCategory };
+type TransactionRow = { id: string; type: Transaction["type"]; status: "posted" | "planned" | null; amount_minor: number; transaction_date: string; notes: string | null; account_id: string | null; from_account_id: string | null; to_account_id: string | null; categories: RelatedCategory };
 type BudgetRow = { id: string; amount_limit_minor: number; categories: RelatedCategory };
 type BalanceCheckRow = { id: string; period_start: string; period_end: string; actual_balance_minor: number };
+type AccountRow = { id: string; name: string; kind: Account["kind"]; opening_balance_minor: number; credit_limit_minor: number | null };
 
 const periodFromDatabase: Record<string, Period> = { daily: "today", weekly: "week", biweekly: "biweekly", monthly: "month", yearly: "year" };
 const periodToDatabase: Partial<Record<Period, string>> = { today: "daily", week: "weekly", biweekly: "biweekly", month: "monthly", year: "yearly" };
 
-function relatedCategory(value: RelatedCategory) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
+function relatedCategory(value: RelatedCategory) { return Array.isArray(value) ? value[0] : value; }
 function moneyToMinor(amount: number) { return Math.round(amount * 100); }
 function moneyFromMinor(amount: number) { return amount / 100; }
 
@@ -53,14 +52,19 @@ export const supabaseBudgetRepository = {
   async load(): Promise<CloudSnapshot> {
     const supabase = getSupabaseClient();
     const userId = await currentUserId();
-    const [profileResult, categoriesResult, transactionsResult, budgetsResult, checksResult] = await Promise.all([
+    const [profileResult, categoriesResult, transactionsResult, budgetsResult, checksResult, accountsResult] = await Promise.all([
       supabase.from("profiles").select("display_name,currency_code,preferred_period,starting_balance_minor,savings_goal_minor").eq("id", userId).maybeSingle(),
       supabase.from("categories").select("id,name,icon,kind").eq("user_id", userId).eq("kind", "expense"),
-      supabase.from("transactions").select("id,type,status,amount_minor,transaction_date,notes,categories(name,icon)").eq("user_id", userId).order("transaction_date", { ascending: false }),
+      supabase.from("transactions").select("id,type,status,amount_minor,transaction_date,notes,account_id,from_account_id,to_account_id,categories(name,icon)").eq("user_id", userId).order("transaction_date", { ascending: false }),
       supabase.from("budgets").select("id,amount_limit_minor,categories(name,icon)").eq("user_id", userId),
       supabase.from("balance_checks").select("id,period_start,period_end,actual_balance_minor").eq("user_id", userId),
+      supabase.from("accounts").select("id,name,kind,opening_balance_minor,credit_limit_minor").eq("user_id", userId).order("created_at", { ascending: true }),
     ]);
-    for (const result of [profileResult, categoriesResult, transactionsResult, budgetsResult, checksResult]) if (result.error) throw result.error;
+    for (const result of [profileResult, categoriesResult, transactionsResult, budgetsResult, checksResult, accountsResult]) if (result.error) throw result.error;
+
+    const accountRows = (accountsResult.data || []) as AccountRow[];
+    const accounts = accountRows.map((row, index) => ({ id: index + 1, name: row.name, kind: row.kind, openingBalance: moneyFromMinor(row.opening_balance_minor), creditLimit: row.credit_limit_minor === null ? undefined : moneyFromMinor(row.credit_limit_minor) }));
+    const localAccountIdByCloudId = new Map(accountRows.map((row, index) => [row.id, index + 1]));
     const profile = profileResult.data ? {
       name: profileResult.data.display_name || "Your budget",
       currency: profileResult.data.currency_code || "PHP",
@@ -71,9 +75,10 @@ export const supabaseBudgetRepository = {
     return {
       profile,
       categories: ((categoriesResult.data || []) as CategoryRow[]).map((row) => row.name),
+      accounts,
       transactions: ((transactionsResult.data || []) as TransactionRow[]).map((row, index) => {
         const category = relatedCategory(row.categories);
-        return { id: index + 1, name: row.notes || "Untitled transaction", category: category?.name || (row.type === "income" ? "Income" : row.type === "transfer" ? "Transfer" : "Other"), amount: moneyFromMinor(row.amount_minor), date: row.transaction_date, type: row.type, status: row.status || "posted", icon: category?.icon || (row.type === "income" ? "✦" : "•") };
+        return { id: index + 1, name: row.notes || "Untitled transaction", category: category?.name || (row.type === "income" ? "Income" : row.type === "transfer" ? "Transfer" : "Other"), amount: moneyFromMinor(row.amount_minor), date: row.transaction_date, type: row.type, status: row.status || "posted", accountId: row.account_id ? localAccountIdByCloudId.get(row.account_id) : undefined, fromAccountId: row.from_account_id ? localAccountIdByCloudId.get(row.from_account_id) : undefined, toAccountId: row.to_account_id ? localAccountIdByCloudId.get(row.to_account_id) : undefined, icon: category?.icon || (row.type === "income" ? "✦" : "•") };
       }),
       budgets: ((budgetsResult.data || []) as BudgetRow[]).flatMap((row, index) => {
         const category = relatedCategory(row.categories);
@@ -94,8 +99,21 @@ export const supabaseBudgetRepository = {
     const categoryIds = new Map(categories.map((category) => [category.name.toLowerCase(), category.id]));
     const { error: removeTransactionsError } = await supabase.from("transactions").delete().eq("user_id", userId);
     if (removeTransactionsError) throw removeTransactionsError;
+    const { error: removeAccountsError } = await supabase.from("accounts").delete().eq("user_id", userId);
+    if (removeAccountsError) throw removeAccountsError;
+
+    const accountIds = new Map<number, string>();
+    if (snapshot.accounts.length) {
+      const { data: savedAccounts, error: accountsError } = await supabase.from("accounts").insert(snapshot.accounts.map((account) => ({ user_id: userId, name: account.name, kind: account.kind, opening_balance_minor: moneyToMinor(account.openingBalance), credit_limit_minor: account.kind === "credit_card" ? moneyToMinor(account.creditLimit || 0) : null }))).select("id,name");
+      if (accountsError) throw accountsError;
+      const cloudAccountIdByName = new Map((savedAccounts || []).map((account) => [account.name.toLowerCase(), account.id]));
+      for (const account of snapshot.accounts) {
+        const cloudId = cloudAccountIdByName.get(account.name.toLowerCase());
+        if (cloudId) accountIds.set(account.id, cloudId);
+      }
+    }
     if (snapshot.transactions.length) {
-      const { error } = await supabase.from("transactions").insert(snapshot.transactions.map((item) => ({ user_id: userId, category_id: categoryIds.get(item.category.toLowerCase()) || null, type: item.type, status: item.status || "posted", amount_minor: moneyToMinor(item.amount), transaction_date: item.date, notes: item.name })));
+      const { error } = await supabase.from("transactions").insert(snapshot.transactions.map((item) => ({ user_id: userId, category_id: categoryIds.get(item.category.toLowerCase()) || null, type: item.type, status: item.status || "posted", amount_minor: moneyToMinor(item.amount), transaction_date: item.date, notes: item.name, account_id: item.accountId === undefined ? null : accountIds.get(item.accountId) || null, from_account_id: item.fromAccountId === undefined ? null : accountIds.get(item.fromAccountId) || null, to_account_id: item.toAccountId === undefined ? null : accountIds.get(item.toAccountId) || null })));
       if (error) throw error;
     }
 
