@@ -13,7 +13,7 @@ export type Transaction = {
 };
 export type Account = { id: number; name: string; kind: "cash" | "bank" | "credit_card"; openingBalance: number; creditLimit?: number };
 export type AccountBalance = Account & { balance: number; amountOwed: number; availableCredit: number };
-export type BalanceCheck = { id: number; periodStart: string; periodEnd: string; actualBalance: number };
+export type BalanceCheck = { id: number; periodStart: string; periodEnd: string; actualBalance: number; accountId?: number };
 
 export type Budget = {
   id: number;
@@ -116,6 +116,12 @@ export function accountBalancesFor(accounts: Account[], transactions: Transactio
     const amountOwed = item.kind === "credit_card" ? Math.max(raw, 0) : 0;
     return { ...item, balance: item.kind === "credit_card" ? 0 : raw, amountOwed, availableCredit: item.kind === "credit_card" ? Math.max((item.creditLimit || 0) - amountOwed, 0) : 0 };
   });
+}
+
+export function accountExpectationFor(account: Account, transactions: Transaction[]) {
+  const current = accountBalancesFor([account], transactions)[0];
+  const expectedBalance = account.kind === "credit_card" ? current.amountOwed : current.balance;
+  return { expectedBalance, label: account.kind === "credit_card" ? "amount owed" : "balance" };
 }
 
 export function balanceExpectationFor(startingBalance: number, transactions: Transaction[], range: DateRange) {

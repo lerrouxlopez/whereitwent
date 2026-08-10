@@ -4,6 +4,7 @@ Apply the database migrations in Supabase SQL Editor before merging the web rele
 
 1. `supabase/migrations/20260810_planned_transactions.sql`
 2. `supabase/migrations/20260810_accounts_and_transfers.sql`
+3. `supabase/migrations/20260810_account_balance_checks.sql`
 
 After the GitHub pull request is merged, the existing deployment workflow builds the web image and updates only the WIW container on the VPS.
 
@@ -14,3 +15,4 @@ After the GitHub pull request is merged, the existing deployment workflow builds
 3. Add a card expense and confirm it increases the card amount owed once.
 4. Record a transfer from the bank to the card and confirm the bank balance falls, card debt falls, and spending does not change.
 5. Refresh the page, then sign in from a second browser session and confirm the accounts, account assignments, and transfer remain visible.
+6. Use **Check balance** on a bank account and a card account; confirm the bank uses its actual balance and the card uses its actual amount owed.
